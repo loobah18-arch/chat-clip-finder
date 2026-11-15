@@ -9,13 +9,14 @@ Usage:
     python3 caption_helper.py <clip.mp4> [options]
 
 Options:
-    --text "Text here"   Burn a fixed hook text (e.g. "Wait for it...", "Chat lost it here")
+    --text "Text here"   Burn a fixed hook text (e.g. "WAIT FOR IT...", "CHAT LOST IT HERE")
     --srt <file.srt>     Burn an existing SRT subtitle file
     --out <file.mp4>     Output file path (default: <input>_captioned.mp4)
     --style <style>      Subtitle styling preset: 'bold_yellow', 'clean_white', 'tiktok'
 """
 
 import sys
+import re
 import subprocess
 from pathlib import Path
 
@@ -36,14 +37,26 @@ STYLE_PRESETS = {
 }
 
 
-def burn_text(input_mp4, text, output_mp4, duration=4.0):
-    """Burns an opening hook text into the first few seconds of a vertical clip."""
+def sanitize_text(text):
+    """Strip characters that cause missing-glyph tofu boxes in standard FFmpeg fonts."""
+    # Retain standard latin, digits, common punctuation
+    cleaned = re.sub(r'[^\x20-\x7E]', '', text)
+    return cleaned.strip() or "WAIT FOR IT..."
+
+
+def burn_text(input_mp4, text, output_mp4, duration=3.5):
+    """Burns an opening hook text into the first few seconds of a vertical clip with a smooth fade-out."""
+    clean = sanitize_text(text)
     # Escapes text for FFmpeg drawtext filter
-    escaped_text = text.replace(":", "\\:").replace("'", "\\'").replace("%", "\\%")
+    escaped_text = clean.replace(":", "\\:").replace("'", "\\'").replace("%", "\\%")
+
+    # Smooth fade out over the last 0.5s of duration
+    fade_expr = f"if(lt(t,{duration - 0.5}),1,if(lt(t,{duration}),({duration}-t)/0.5,0))"
+
     drawtext_filter = (
-        f"drawtext=text='{escaped_text}':fontcolor=white:fontsize=56:box=1:"
-        f"boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=(h-text_h)/3:"
-        f"enable='between(t,0,{duration})'"
+        f"drawtext=text='{escaped_text}':fontcolor=white:fontsize=52:box=1:"
+        f"boxcolor=black@0.75:boxborderw=24:x=(w-text_w)/2:y=h*0.28:"
+        f"alpha='{fade_expr}'"
     )
 
     cmd = [
@@ -118,7 +131,6 @@ def main():
         burn_text(input_file, hook_text, out_file)
     else:
         print("Please provide --text 'hook text' or --srt 'subtitles.srt'.")
-        print("Tip: Most viral shorts use an opening hook: --text 'Wait for it 😳'")
 
 
 if __name__ == "__main__":

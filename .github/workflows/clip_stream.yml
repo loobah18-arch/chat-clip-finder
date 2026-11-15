@@ -31,7 +31,7 @@ on:
       hook_text:
         description: 'Opening hook text to burn on first 4 seconds'
         required: false
-        default: 'Wait for it 😳'
+        default: 'WAIT FOR IT...'
         type: string
 
 jobs:
@@ -54,10 +54,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg & Fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Download TwitchDownloaderCLI Linux-x64 (If Live VOD)
         if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}

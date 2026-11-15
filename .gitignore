@@ -1,0 +1,26 @@
+# Video clips and pieces
+clips/
+*.mp4
+*.mkv
+*.ts
+piece_*.mp4
+
+# Twitch chat files
+chat.json
+*.cache
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Binaries
+TwitchDownloaderCLI
+TwitchDownloaderCLI.exe

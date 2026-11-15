@@ -1,0 +1,106 @@
+name: Clip Twitch Stream (Cloud Runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      vod_url:
+        description: 'Twitch VOD URL or Video ID (e.g. https://www.twitch.tv/videos/1234567890)'
+        required: true
+        type: string
+      top:
+        description: 'Number of top clips to generate'
+        required: false
+        default: '5'
+        type: string
+      before:
+        description: 'Seconds before spike to start clip'
+        required: false
+        default: '20'
+        type: string
+      after:
+        description: 'Seconds after spike to end clip'
+        required: false
+        default: '10'
+        type: string
+      gap:
+        description: 'Minimum gap between clips (seconds)'
+        required: false
+        default: '90'
+        type: string
+      hook_text:
+        description: 'Optional hook text to burn on first 4 seconds (e.g. "Wait for it 😳")'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  find-and-cut-clips:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Download TwitchDownloaderCLI Linux-x64
+        run: |
+          echo "Fetching latest TwitchDownloader release..."
+          LATEST_JSON=$(curl -s https://api.github.com/repos/lay295/TwitchDownloader/releases/latest)
+          DOWNLOAD_URL=$(echo "$LATEST_JSON" | grep -o 'https://[^"]*Linux-x64.zip' | head -n 1)
+          if [ -z "$DOWNLOAD_URL" ]; then
+            DOWNLOAD_URL="https://github.com/lay295/TwitchDownloader/releases/download/1.55.2/TwitchDownloaderCLI-1.55.2-Linux-x64.zip"
+          fi
+          echo "Downloading $DOWNLOAD_URL..."
+          curl -L -o tdl.zip "$DOWNLOAD_URL"
+          unzip -o tdl.zip
+          chmod +x TwitchDownloaderCLI
+          ./TwitchDownloaderCLI --version || true
+
+      - name: Download Twitch Chat JSON
+        run: |
+          echo "Downloading chat for ${{ inputs.vod_url }}..."
+          ./TwitchDownloaderCLI chatdownload --id "${{ inputs.vod_url }}" -o chat.json
+          ls -lh chat.json
+
+      - name: Find Moments and Cut Vertical Clips
+        run: |
+          node chat-clips.mjs chat.json \
+            --vod "${{ inputs.vod_url }}" \
+            --top "${{ inputs.top }}" \
+            --before "${{ inputs.before }}" \
+            --after "${{ inputs.after }}" \
+            --gap "${{ inputs.gap }}" \
+            --tdl ./TwitchDownloaderCLI \
+            --out clips
+
+      - name: Apply Hook Caption (Optional)
+        if: ${{ inputs.hook_text != '' }}
+        run: |
+          for f in clips/clip_*.mp4; do
+            if [ -f "$f" ]; then
+              python3 caption_helper.py "$f" --text "${{ inputs.hook_text }}" --out "${f%.mp4}_hook.mp4"
+            fi
+          done
+
+      - name: Upload Clips Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: twitch-vertical-clips
+          path: clips/
+          retention-days: 7

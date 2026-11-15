@@ -1,0 +1,29 @@
+{
+  "name": "chat-clip-finder",
+  "version": "1.0.0",
+  "description": "Let Twitch chat find the best moments of a stream, then cut them into vertical 9:16 clips.",
+  "type": "module",
+  "main": "chat-clips.mjs",
+  "bin": {
+    "chat-clips": "./chat-clips.mjs"
+  },
+  "scripts": {
+    "start": "node chat-clips.mjs",
+    "demo": "node chat-clips.mjs demo_chat.json",
+    "test": "python3 test_chat_clips.py"
+  },
+  "keywords": [
+    "twitch",
+    "chat",
+    "clips",
+    "shorts",
+    "tiktok",
+    "reels",
+    "video-editing",
+    "automation",
+    "ffmpeg",
+    "twitchdownloader"
+  ],
+  "author": "loobah18-arch",
+  "license": "MIT"
+}

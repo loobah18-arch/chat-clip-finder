@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       vod_url:
-        description: 'Twitch VOD URL or Video ID (e.g. https://www.twitch.tv/videos/1234567890)'
-        required: true
+        description: 'Twitch VOD URL or Video ID (leave as "demo" to test without a live VOD)'
+        required: false
+        default: 'demo'
         type: string
       top:
         description: 'Number of top clips to generate'
         required: false
-        default: '5'
+        default: '3'
         type: string
       before:
         description: 'Seconds before spike to start clip'
@@ -28,9 +29,9 @@ on:
         default: '90'
         type: string
       hook_text:
-        description: 'Optional hook text to burn on first 4 seconds (e.g. "Wait for it 😳")'
+        description: 'Opening hook text to burn on first 4 seconds'
         required: false
-        default: ''
+        default: 'Wait for it 😳'
         type: string
 
 jobs:
@@ -58,7 +59,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Download TwitchDownloaderCLI Linux-x64
+      - name: Download TwitchDownloaderCLI Linux-x64 (If Live VOD)
+        if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
         run: |
           echo "Fetching latest TwitchDownloader release..."
           LATEST_JSON=$(curl -s https://api.github.com/repos/lay295/TwitchDownloader/releases/latest)
@@ -72,14 +74,36 @@ jobs:
           chmod +x TwitchDownloaderCLI
           ./TwitchDownloaderCLI --version || true
 
-      - name: Download Twitch Chat JSON
+      - name: Handle Demo Mode
+        if: ${{ inputs.vod_url == 'demo' || inputs.vod_url == '' }}
+        run: |
+          echo "🎮 Demo Stream Mode active!"
+          echo "Generating 1080p source stream with motion and audio (2h duration)..."
+          ffmpeg -y \
+            -f lavfi -i "testsrc2=size=1920x1080:rate=10:duration=7200" \
+            -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=44100:duration=7200" \
+            -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
+            -c:a aac -b:a 64k \
+            demo_stream.mp4
+          ls -lh demo_stream.mp4
+
+          echo "Cutting vertical 9:16 clips from demo chat spikes..."
+          node chat-clips.mjs demo_chat.json \
+            --video demo_stream.mp4 \
+            --top "${{ inputs.top }}" \
+            --before "${{ inputs.before }}" \
+            --after "${{ inputs.after }}" \
+            --gap "${{ inputs.gap }}" \
+            --out clips
+
+      - name: Handle Live Twitch VOD Mode
+        if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
         run: |
           echo "Downloading chat for ${{ inputs.vod_url }}..."
           ./TwitchDownloaderCLI chatdownload --id "${{ inputs.vod_url }}" -o chat.json
           ls -lh chat.json
 
-      - name: Find Moments and Cut Vertical Clips
-        run: |
+          echo "Cutting vertical clips from VOD..."
           node chat-clips.mjs chat.json \
             --vod "${{ inputs.vod_url }}" \
             --top "${{ inputs.top }}" \
@@ -94,9 +118,11 @@ jobs:
         run: |
           for f in clips/clip_*.mp4; do
             if [ -f "$f" ]; then
+              echo "Adding hook text to $f..."
               python3 caption_helper.py "$f" --text "${{ inputs.hook_text }}" --out "${f%.mp4}_hook.mp4"
             fi
           done
+          ls -lh clips/
 
       - name: Upload Clips Artifact
         uses: actions/upload-artifact@v4

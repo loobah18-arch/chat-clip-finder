@@ -139,6 +139,7 @@ Add any of these flags to customize the output:
 | `--after <s>` | Seconds after the spike to end clip | `10` |
 | `--gap <s>` | Minimum seconds between two clips | `90` |
 | `--bucket <s>` | Size of each counting slice in seconds | `10` |
+| `--layout <mode>` | 9:16 layout: `blur` (ambient fill with full 16:9 stream) or `crop` (center zoom) | `blur` |
 | `--out <folder>` | Folder name for the output clips | `clips` |
 | `--video <file>` | Cut from a local video file you already have | — |
 | `--vod <url/id>` | Cut from Twitch directly via TwitchDownloaderCLI | — |

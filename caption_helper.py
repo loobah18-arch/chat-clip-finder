@@ -2,23 +2,38 @@
 """
 Caption Helper for Chat Clip Finder (Step 9 of the Guide)
 
-Generates clean vertical-optimized subtitles (.srt or .ass) and burns them
+Generates clean vertical-optimized subtitles (.srt or JSON timed cues) and burns them
 onto vertical 9:16 clips using FFmpeg.
 
 Usage:
     python3 caption_helper.py <clip.mp4> [options]
 
 Options:
-    --text "Text here"   Burn a fixed hook text (e.g. "WAIT FOR IT...", "CHAT LOST IT HERE")
-    --srt <file.srt>     Burn an existing SRT subtitle file
-    --out <file.mp4>     Output file path (default: <input>_captioned.mp4)
-    --style <style>      Subtitle styling preset: 'bold_yellow', 'clean_white', 'tiktok'
+    --text "Text here"      Burn a fixed hook text (e.g. "WAIT FOR IT...", "CHAT LOST IT HERE")
+    --subtitles <file.json> Burn timed bottom subtitles from JSON cues
+    --srt <file.srt>        Burn an existing SRT subtitle file
+    --out <file.mp4>        Output file path (default: <input>_captioned.mp4)
+    --style <style>         Subtitle styling preset: 'bold_yellow', 'clean_white', 'tiktok'
 """
 
 import sys
 import re
+import json
 import subprocess
 from pathlib import Path
+
+
+def get_default_font():
+    """Detect available font on Android Termux or Linux."""
+    candidates = [
+        "/system/fonts/Roboto-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for c in candidates:
+        if Path(c).exists():
+            return c
+    return None
 
 
 STYLE_PRESETS = {
@@ -71,6 +86,44 @@ def burn_text(input_mp4, text, output_mp4, duration=3.5):
     print(f"✅ Created hook-captioned clip: {output_mp4}")
 
 
+def burn_timed_subtitles(input_mp4, json_file, output_mp4, font_path=None):
+    """Burns timed subtitle cues from a JSON file into the bottom third of the video."""
+    with open(json_file, "r", encoding="utf-8") as f:
+        cues = json.load(f)
+
+    font = font_path or get_default_font()
+    font_arg = f":fontfile={font}" if font else ""
+
+    filters = []
+    for cue in cues:
+        clean_text = cue["text"].replace("'", "’").replace('"', "”").replace(":", r"\:")
+        st = cue["start"]
+        en = cue["end"]
+        color = cue.get("color", "yellow")
+        enable_expr = f"between(t\\,{st}\\,{en})"
+        f_str = (
+            f"drawtext=text='{clean_text}'{font_arg}:"
+            f"fontcolor={color}:"
+            f"fontsize=44:"
+            f"box=1:boxcolor=black@0.75:boxborderw=16:"
+            f"x=(w-text_w)/2:y=h*0.82:"
+            f"enable='{enable_expr}'"
+        )
+        filters.append(f_str)
+
+    vf = ",".join(filters)
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning",
+        "-i", input_mp4,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "copy",
+        output_mp4
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ Created subtitled clip: {output_mp4}")
+
+
 def burn_subtitles(input_mp4, srt_file, output_mp4, style="bold_yellow"):
     """Burns SRT subtitle track into vertical 9:16 clip."""
     style_str = STYLE_PRESETS.get(style, STYLE_PRESETS["bold_yellow"])
@@ -103,6 +156,7 @@ def main():
     out_file = None
     hook_text = None
     srt_file = None
+    json_sub_file = None
     style = "bold_yellow"
 
     i = 1
@@ -112,6 +166,9 @@ def main():
             i += 2
         elif args[i] == "--text" and i + 1 < len(args):
             hook_text = args[i + 1]
+            i += 2
+        elif (args[i] == "--subtitles" or args[i] == "--json") and i + 1 < len(args):
+            json_sub_file = args[i + 1]
             i += 2
         elif args[i] == "--srt" and i + 1 < len(args):
             srt_file = args[i + 1]
@@ -125,12 +182,14 @@ def main():
     if not out_file:
         out_file = str(in_path.with_name(f"{in_path.stem}_captioned{in_path.suffix}"))
 
-    if srt_file:
+    if json_sub_file:
+        burn_timed_subtitles(input_file, json_sub_file, out_file)
+    elif srt_file:
         burn_subtitles(input_file, srt_file, out_file, style=style)
     elif hook_text:
         burn_text(input_file, hook_text, out_file)
     else:
-        print("Please provide --text 'hook text' or --srt 'subtitles.srt'.")
+        print("Please provide --subtitles 'cues.json', --text 'hook text', or --srt 'subtitles.srt'.")
 
 
 if __name__ == "__main__":

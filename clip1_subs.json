@@ -1,0 +1,9 @@
+[
+  {"start": 3.0, "end": 5.8, "text": "WHAT AN... OH MY GOODNESS! HOW?!", "color": "yellow"},
+  {"start": 6.0, "end": 8.8, "text": "I’M AN IDIOT!", "color": "white"},
+  {"start": 8.9, "end": 11.2, "text": "OH MY GOODNESS, I’M AN IDIOT BRO!", "color": "yellow"},
+  {"start": 11.3, "end": 14.0, "text": "I AM AN IDIOT, MAN!", "color": "white"},
+  {"start": 14.1, "end": 18.5, "text": "WHAT AM I DOING?!", "color": "yellow"},
+  {"start": 23.0, "end": 26.4, "text": "I THOUGHT I COULD GO ON THE OUTSIDE...", "color": "white"},
+  {"start": 26.5, "end": 29.8, "text": "...FOR ONE MORE ROTATION!", "color": "yellow"}
+]

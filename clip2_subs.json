@@ -1,0 +1,12 @@
+[
+  {"start": 1.5, "end": 3.2, "text": "“Case read my bits...”", "color": "white"},
+  {"start": 3.3, "end": 4.4, "text": "“...don’t know how to pin”", "color": "white"},
+  {"start": 4.5, "end": 7.4, "text": "HOW DO YOU THINK I’M GONNA DO THAT?!", "color": "yellow"},
+  {"start": 7.5, "end": 9.8, "text": "“Shoutout from Paris, Arkansas”", "color": "white"},
+  {"start": 9.9, "end": 12.0, "text": "YOU’RE DOXXED!", "color": "yellow"},
+  {"start": 12.1, "end": 15.2, "text": "“Do you stand to wipe, or...”", "color": "white"},
+  {"start": 15.3, "end": 18.2, "text": "OKAY, NEVERMIND.", "color": "yellow"},
+  {"start": 18.5, "end": 21.0, "text": "THANK YOU FOR THE THOUSAND BITS!", "color": "yellow"},
+  {"start": 21.1, "end": 23.5, "text": "HOPE Y’ALL DOING GOOD!", "color": "white"},
+  {"start": 23.8, "end": 28.8, "text": "I KNOW EXACTLY WHERE PARIS, ARKANSAS IS!", "color": "yellow"}
+]

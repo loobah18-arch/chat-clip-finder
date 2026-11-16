@@ -163,26 +163,26 @@ def detect_webcam_crop(video_file, default_pos="bottom-left"):
     return PRESETS.get(default_pos, PRESETS["bottom-left"])
 
 
-def get_filter_args(layout="stack", cam_pos="auto", video_sample=None):
+def get_filter_args(layout="stack", cam_pos="auto", video_sample=None, fps=30):
     if layout == "crop":
-        return ["-vf", "crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,setsar=1"]
+        return ["-vf", f"crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,fps={fps},setsar=1"]
     elif layout == "stack":
         cx, cy, cw, ch = detect_webcam_crop(video_sample, default_pos=cam_pos) if video_sample else (0, 240, 460, 360)
-        # Cam at top (1080x720), ambient blur in middle, gameplay at bottom (1080x1080 at y=840)
+        # YouTube Shorts reference layout:
+        # Full-bleed 1080x1920 stacked (streamer webcam 1080x700 top, gameplay 1080x1220 bottom, 4px divider seam)
         fc = (
-            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.35[bg];"
-            f"[0:v]crop=w={cw}:h={ch}:x={cx}:y={cy},scale=1080:720[cam];"
-            f"[0:v]crop=w=1440:h=1080:x=240:y=0,scale=1080:1080[game];"
-            f"[bg][cam]overlay=0:0[t1];"
-            f"[t1][game]overlay=0:840[v_out]"
+            f"[0:v]crop=w={cw}:h={ch}:x={cx}:y={cy},scale=1080:700,fps={fps}[cam];"
+            f"[0:v]crop=w=floor(ih*1080/1220/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1220,fps={fps}[game];"
+            f"[cam][game]vstack=inputs=2[v_stacked];"
+            f"[v_stacked]drawbox=x=0:y=698:w=1080:h=4:color=black@0.8:t=fill[v_out]"
         )
         return ["-filter_complex", fc, "-map", "[v_out]", "-map", "0:a?"]
     else:
         # Default 'blur': Ambient blurred background with full 16:9 widescreen in center
         fc = (
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];"
-            "[0:v]scale=1080:-1[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]"
+            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15,fps={fps}[bg];"
+            f"[0:v]scale=1080:-1,fps={fps}[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]"
         )
         return ["-filter_complex", fc, "-map", "[v_out]", "-map", "0:a?"]
 
@@ -321,6 +321,7 @@ def main():
         moments_data.append({
             "rank": i + 1,
             "t": p["t"],
+            "timestamp": format_hms(p["t"]),
             "msgs": p["msgs"],
             "score": p["score"],
             "start": clip_start,

@@ -184,6 +184,7 @@ const momentsData = peaks.map((p, k) => {
   return {
     rank: k + 1,
     t: p.t,
+    timestamp: hms(p.t),
     msgs: p.msgs,
     score: p.score,
     start: clipStart,
@@ -233,18 +234,17 @@ const getFilterArgs = () => {
     const c = CAM_PRESETS[CAM] || CAM_PRESETS['bottom-left'];
     return [
       '-filter_complex',
-      `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.35[bg];` +
-      `[0:v]crop=w=${c.cw}:h=${c.ch}:x=${c.cx}:y=${c.cy},scale=1080:720[cam];` +
-      `[0:v]crop=w=1440:h=1080:x=240:y=0,scale=1080:1080[game];` +
-      `[bg][cam]overlay=0:0[t1];` +
-      `[t1][game]overlay=0:840[v_out]`,
+      `[0:v]crop=w=${c.cw}:h=${c.ch}:x=${c.cx}:y=${c.cy},scale=1080:700,fps=30[cam];` +
+      `[0:v]crop=w=floor(ih*1080/1220/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1220,fps=30[game];` +
+      `[cam][game]vstack=inputs=2[v_stacked];` +
+      `[v_stacked]drawbox=x=0:y=698:w=1080:h=4:color=black@0.8:t=fill[v_out]`,
       '-map', '[v_out]',
       '-map', '0:a?',
     ];
   }
   return [
     '-filter_complex',
-    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];[0:v]scale=1080:-1[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]',
+    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15,fps=30[bg];[0:v]scale=1080:-1,fps=30[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]',
     '-map', '[v_out]',
     '-map', '0:a?',
   ];

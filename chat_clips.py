@@ -45,6 +45,7 @@ def parse_args():
         "vod": None,
         "video": None,
         "tdl": None,
+        "layout": "blur",
         "dry_run": False,
     }
 
@@ -241,13 +242,29 @@ def main():
         print("To cut video clips, provide --vod <ID/URL> or --video <local.mp4>")
         sys.exit(0)
 
-    # 6. Cut vertical clips (9:16 center crop)
-    vertical_vf = "crop=ih*9/16:ih,scale=1080:1920"
+    # 6. Cut vertical clips (9:16 layout)
     tdl_bin = resolve_tdl(opts["tdl"])
+    layout = opts.get("layout", "blur")
+
+    if layout == "crop":
+        filter_args = ["-vf", "crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,setsar=1"]
+    else:
+        # Default 'blur': Ambient blurred background with full 16:9 widescreen in center
+        filter_args = [
+            "-filter_complex",
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];"
+            "[0:v]scale=1080:-1[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
+        ]
+
+    codec_args = [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "192k"
+    ]
 
     for item in moments_data:
         out_path = out_dir / item["clipFile"]
-        print(f"\n✂️ Cutting #{item['rank']} -> {out_path} ({item['clipStart']} to {item['clipEnd']}, {item['duration']}s)")
+        print(f"\n✂️ Cutting #{item['rank']} -> {out_path} ({item['clipStart']} to {item['clipEnd']}, {item['duration']}s, layout: {layout})")
 
         if opts["video"]:
             run_cmd([
@@ -255,9 +272,8 @@ def main():
                 "-ss", str(item["start"]),
                 "-t", str(item["duration"]),
                 "-i", opts["video"],
-                "-vf", vertical_vf,
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                "-c:a", "aac", "-b:a", "192k",
+                *filter_args,
+                *codec_args,
                 str(out_path)
             ])
         else:
@@ -270,13 +286,12 @@ def main():
                 "-e", item["clipEnd"],
                 "-o", str(piece_path)
             ])
-            print("  Rendering 9:16 vertical 1080x1920 with ffmpeg...")
+            print(f"  Rendering 9:16 vertical 1080x1920 ({layout}) with ffmpeg...")
             run_cmd([
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-i", str(piece_path),
-                "-vf", vertical_vf,
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                "-c:a", "aac", "-b:a", "192k",
+                *filter_args,
+                *codec_args,
                 str(out_path)
             ])
             if piece_path.exists():

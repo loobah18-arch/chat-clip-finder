@@ -33,6 +33,11 @@ on:
         required: false
         default: 'WAIT FOR IT...'
         type: string
+      layout:
+        description: 'Vertical 9:16 layout: "blur" (ambient fill with full 16:9 stream) or "crop" (center zoom)'
+        required: false
+        default: 'blur'
+        type: string
 
 jobs:
   find-and-cut-clips:
@@ -94,6 +99,7 @@ jobs:
             --before "${{ inputs.before }}" \
             --after "${{ inputs.after }}" \
             --gap "${{ inputs.gap }}" \
+            --layout "${{ inputs.layout }}" \
             --out clips
 
       - name: Handle Live Twitch VOD Mode
@@ -110,6 +116,7 @@ jobs:
             --before "${{ inputs.before }}" \
             --after "${{ inputs.after }}" \
             --gap "${{ inputs.gap }}" \
+            --layout "${{ inputs.layout }}" \
             --tdl ./TwitchDownloaderCLI \
             --out clips
 

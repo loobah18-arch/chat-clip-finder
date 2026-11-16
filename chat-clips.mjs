@@ -60,6 +60,7 @@ const GAP = Number(opt('gap', 90));       // min seconds between two clips
 const OUT = opt('out', 'clips');
 const VOD = opt('vod');
 const VIDEO = opt('video');
+const LAYOUT = opt('layout', 'blur');     // 'blur' (ambient fill, full HUD/facecam) or 'crop' (center zoom)
 const DRY_RUN = hasFlag('dry-run');
 
 // Smart binary detection for TwitchDownloaderCLI
@@ -196,7 +197,7 @@ if (DRY_RUN || (!VOD && !VIDEO)) {
   process.exit(0);
 }
 
-// --- 6. Cut vertical clips (9:16 center crop) ---
+// --- 6. Cut vertical clips (9:16 format) ---
 const run = (cmd, cmdArgs) => {
   const r = spawnSync(cmd, cmdArgs, { stdio: 'inherit' });
   if (r.status !== 0) {
@@ -204,9 +205,21 @@ const run = (cmd, cmdArgs) => {
   }
 };
 
-// 1080x1920 center-crop for 16:9 source
-const VERTICAL = [
-  '-vf', 'crop=ih*9/16:ih,scale=1080:1920',
+// 9:16 layout filters: 'blur' (ambient fill with full 16:9 content) or 'crop' (center zoom)
+const getFilterArgs = () => {
+  if (LAYOUT === 'crop') {
+    return [
+      '-vf',
+      'crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,setsar=1',
+    ];
+  }
+  return [
+    '-filter_complex',
+    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];[0:v]scale=1080:-1[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1',
+  ];
+};
+
+const CODEC_OPTS = [
   '-c:v', 'libx264',
   '-preset', 'veryfast',
   '-crf', '20',
@@ -216,7 +229,7 @@ const VERTICAL = [
 
 momentsData.forEach((p) => {
   const out = join(OUT, p.clipFile);
-  console.log(`\n✂️ Cutting #${p.rank} -> ${out} (${p.clipStart} to ${p.clipEnd}, ${p.duration}s)`);
+  console.log(`\n✂️ Cutting #${p.rank} -> ${out} (${p.clipStart} to ${p.clipEnd}, ${p.duration}s, layout: ${LAYOUT})`);
 
   if (VIDEO) {
     run('ffmpeg', [
@@ -225,7 +238,8 @@ momentsData.forEach((p) => {
       '-ss', String(p.start),
       '-t', String(p.duration),
       '-i', VIDEO,
-      ...VERTICAL,
+      ...getFilterArgs(),
+      ...CODEC_OPTS,
       out,
     ]);
   } else {
@@ -238,12 +252,13 @@ momentsData.forEach((p) => {
       '-e', p.clipEnd,
       '-o', piece,
     ]);
-    console.log(`  Cropping to 9:16 vertical 1080x1920 with ffmpeg...`);
+    console.log(`  Rendering 9:16 vertical 1080x1920 (${LAYOUT}) with ffmpeg...`);
     run('ffmpeg', [
       '-y',
       '-loglevel', 'error',
       '-i', piece,
-      ...VERTICAL,
+      ...getFilterArgs(),
+      ...CODEC_OPTS,
       out,
     ]);
     rmSync(piece, { force: true });

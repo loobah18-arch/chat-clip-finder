@@ -55,7 +55,7 @@ def burn_text(input_mp4, text, output_mp4, duration=3.5):
 
     drawtext_filter = (
         f"drawtext=text='{escaped_text}':fontcolor=white:fontsize=52:box=1:"
-        f"boxcolor=black@0.75:boxborderw=24:x=(w-text_w)/2:y=h*0.28:"
+        f"boxcolor=black@0.75:boxborderw=24:x=(w-text_w)/2:y=h*0.16:"
         f"alpha='{fade_expr}'"
     )
 

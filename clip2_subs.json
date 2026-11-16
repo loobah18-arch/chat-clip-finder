@@ -1,12 +1,302 @@
 [
-  {"start": 1.5, "end": 3.2, "text": "“Case read my bits...”", "color": "white"},
-  {"start": 3.3, "end": 4.4, "text": "“...don’t know how to pin”", "color": "white"},
-  {"start": 4.5, "end": 7.4, "text": "HOW DO YOU THINK I’M GONNA DO THAT?!", "color": "yellow"},
-  {"start": 7.5, "end": 9.8, "text": "“Shoutout from Paris, Arkansas”", "color": "white"},
-  {"start": 9.9, "end": 12.0, "text": "YOU’RE DOXXED!", "color": "yellow"},
-  {"start": 12.1, "end": 15.2, "text": "“Do you stand to wipe, or...”", "color": "white"},
-  {"start": 15.3, "end": 18.2, "text": "OKAY, NEVERMIND.", "color": "yellow"},
-  {"start": 18.5, "end": 21.0, "text": "THANK YOU FOR THE THOUSAND BITS!", "color": "yellow"},
-  {"start": 21.1, "end": 23.5, "text": "HOPE Y’ALL DOING GOOD!", "color": "white"},
-  {"start": 23.8, "end": 28.8, "text": "I KNOW EXACTLY WHERE PARIS, ARKANSAS IS!", "color": "yellow"}
+  {
+    "line": "\u201cCase read my bits...\u201d",
+    "color": "#33D6FF",
+    "words": [
+      {
+        "w": "\u201cCase",
+        "s": 0.7,
+        "e": 1.2
+      },
+      {
+        "w": "read",
+        "s": 1.2,
+        "e": 1.7
+      },
+      {
+        "w": "my",
+        "s": 1.7,
+        "e": 2.2
+      },
+      {
+        "w": "bits...\u201d",
+        "s": 2.2,
+        "e": 3.2
+      }
+    ]
+  },
+  {
+    "line": "\u201c...don\u2019t know how to pin\u201d",
+    "color": "#33D6FF",
+    "words": [
+      {
+        "w": "\u201c...don\u2019t",
+        "s": 3.95,
+        "e": 4.25
+      },
+      {
+        "w": "know",
+        "s": 4.25,
+        "e": 4.45
+      },
+      {
+        "w": "how",
+        "s": 4.45,
+        "e": 4.65
+      },
+      {
+        "w": "to",
+        "s": 4.65,
+        "e": 4.8
+      },
+      {
+        "w": "pin\u201d",
+        "s": 4.8,
+        "e": 5.0
+      }
+    ]
+  },
+  {
+    "line": "HOW DO YOU THINK I\u2019M GONNA DO THAT?!",
+    "color": "#FF3B5C",
+    "words": [
+      {
+        "w": "HOW",
+        "s": 5.05,
+        "e": 5.3
+      },
+      {
+        "w": "DO",
+        "s": 5.3,
+        "e": 5.5
+      },
+      {
+        "w": "YOU",
+        "s": 5.5,
+        "e": 5.75
+      },
+      {
+        "w": "THINK",
+        "s": 5.75,
+        "e": 6.1
+      },
+      {
+        "w": "I\u2019M",
+        "s": 6.1,
+        "e": 6.4
+      },
+      {
+        "w": "GONNA",
+        "s": 6.4,
+        "e": 6.8
+      },
+      {
+        "w": "DO",
+        "s": 6.8,
+        "e": 7.0
+      },
+      {
+        "w": "THAT?!",
+        "s": 7.0,
+        "e": 7.45
+      }
+    ]
+  },
+  {
+    "line": "\u201cShoutout from Paris, Arkansas\u201d",
+    "color": "#33D6FF",
+    "words": [
+      {
+        "w": "\u201cShoutout",
+        "s": 7.5,
+        "e": 7.85
+      },
+      {
+        "w": "from",
+        "s": 7.85,
+        "e": 8.1
+      },
+      {
+        "w": "Paris,",
+        "s": 8.1,
+        "e": 8.7
+      },
+      {
+        "w": "Arkansas\u201d",
+        "s": 8.7,
+        "e": 9.8
+      }
+    ]
+  },
+  {
+    "line": "YOU\u2019RE DOXXED!",
+    "color": "#FFC533",
+    "words": [
+      {
+        "w": "YOU\u2019RE",
+        "s": 11.0,
+        "e": 11.5
+      },
+      {
+        "w": "DOXXED!",
+        "s": 11.5,
+        "e": 12.5
+      }
+    ]
+  },
+  {
+    "line": "\u201cDo you stand to wipe, or...\u201d",
+    "color": "#33D6FF",
+    "words": [
+      {
+        "w": "\u201cDo",
+        "s": 12.5,
+        "e": 12.9
+      },
+      {
+        "w": "you",
+        "s": 12.9,
+        "e": 13.2
+      },
+      {
+        "w": "stand",
+        "s": 13.2,
+        "e": 13.8
+      },
+      {
+        "w": "to",
+        "s": 13.8,
+        "e": 14.1
+      },
+      {
+        "w": "wipe,",
+        "s": 14.1,
+        "e": 14.7
+      },
+      {
+        "w": "or...\u201d",
+        "s": 14.7,
+        "e": 15.5
+      }
+    ]
+  },
+  {
+    "line": "OKAY, NEVERMIND.",
+    "color": "#FF3B5C",
+    "words": [
+      {
+        "w": "OKAY,",
+        "s": 15.7,
+        "e": 16.3
+      },
+      {
+        "w": "NEVERMIND.",
+        "s": 16.3,
+        "e": 17.8
+      }
+    ]
+  },
+  {
+    "line": "THANK YOU FOR THE THOUSAND BITS!",
+    "color": "#3DFF7A",
+    "words": [
+      {
+        "w": "THANK",
+        "s": 18.0,
+        "e": 18.4
+      },
+      {
+        "w": "YOU",
+        "s": 18.4,
+        "e": 18.7
+      },
+      {
+        "w": "FOR",
+        "s": 18.7,
+        "e": 19.1
+      },
+      {
+        "w": "THE",
+        "s": 19.1,
+        "e": 19.5
+      },
+      {
+        "w": "THOUSAND",
+        "s": 19.5,
+        "e": 20.0
+      },
+      {
+        "w": "BITS!",
+        "s": 20.0,
+        "e": 20.6
+      }
+    ]
+  },
+  {
+    "line": "HOPE Y\u2019ALL DOING GOOD!",
+    "color": "#B266FF",
+    "words": [
+      {
+        "w": "HOPE",
+        "s": 22.15,
+        "e": 22.6
+      },
+      {
+        "w": "Y\u2019ALL",
+        "s": 22.6,
+        "e": 23.0
+      },
+      {
+        "w": "DOING",
+        "s": 23.0,
+        "e": 23.6
+      },
+      {
+        "w": "GOOD!",
+        "s": 23.6,
+        "e": 24.35
+      }
+    ]
+  },
+  {
+    "line": "I KNOW EXACTLY WHERE PARIS, ARKANSAS IS!",
+    "color": "#FFC533",
+    "words": [
+      {
+        "w": "I",
+        "s": 27.0,
+        "e": 27.3
+      },
+      {
+        "w": "KNOW",
+        "s": 27.3,
+        "e": 27.6
+      },
+      {
+        "w": "EXACTLY",
+        "s": 27.6,
+        "e": 28.1
+      },
+      {
+        "w": "WHERE",
+        "s": 28.1,
+        "e": 28.4
+      },
+      {
+        "w": "PARIS,",
+        "s": 28.4,
+        "e": 28.8
+      },
+      {
+        "w": "ARKANSAS",
+        "s": 28.8,
+        "e": 29.2
+      },
+      {
+        "w": "IS!",
+        "s": 29.2,
+        "e": 29.5
+      }
+    ]
+  }
 ]

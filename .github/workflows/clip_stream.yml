@@ -8,6 +8,35 @@ on:
         required: false
         default: 'demo'
         type: string
+      emotes:
+        description: 'Filter by reaction emotes/keywords (LMAO, KEKW, 💀, WTF, NO WAY) to isolate genuine hype moments'
+        required: false
+        default: true
+        type: boolean
+      min_score:
+        description: 'Minimum spike multiplier threshold (e.g. 2.5 or 4.0)'
+        required: false
+        default: '2.0'
+        type: string
+      layout:
+        description: 'Vertical 9:16 layout: "stack" (webcam top, game bottom), "blur" (ambient fill), "crop" (center zoom)'
+        required: false
+        default: 'stack'
+        type: choice
+        options:
+          - stack
+          - blur
+          - crop
+      cam_pos:
+        description: 'Streamer webcam position for stack layout'
+        required: false
+        default: 'bottom-left'
+        type: choice
+        options:
+          - bottom-left
+          - top-left
+          - bottom-right
+          - top-right
       top:
         description: 'Number of top clips to generate'
         required: false
@@ -29,14 +58,9 @@ on:
         default: '90'
         type: string
       hook_text:
-        description: 'Opening hook text to burn on first 4 seconds'
+        description: 'Opening hook text to burn on first 4 seconds (optional)'
         required: false
         default: 'WAIT FOR IT...'
-        type: string
-      layout:
-        description: 'Vertical 9:16 layout: "blur" (ambient fill with full 16:9 stream) or "crop" (center zoom)'
-        required: false
-        default: 'blur'
         type: string
 
 jobs:
@@ -62,7 +86,7 @@ jobs:
       - name: Install FFmpeg & Fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-roboto
 
       - name: Download TwitchDownloaderCLI Linux-x64 (If Live VOD)
         if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
@@ -84,23 +108,16 @@ jobs:
         run: |
           echo "🎮 Demo Stream Mode active!"
           echo "Generating 1080p source stream with motion and audio (2h duration)..."
-          ffmpeg -y \
-            -f lavfi -i "testsrc2=size=1920x1080:rate=10:duration=7200" \
-            -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=44100:duration=7200" \
-            -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
-            -c:a aac -b:a 64k \
-            demo_stream.mp4
+          ffmpeg -y             -f lavfi -i "testsrc2=size=1920x1080:rate=10:duration=7200"             -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=44100:duration=7200"             -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p             -c:a aac -b:a 64k             demo_stream.mp4
           ls -lh demo_stream.mp4
 
+          EMOTE_FLAG=""
+          if [ "${{ inputs.emotes }}" = "true" ]; then
+            EMOTE_FLAG="--emotes"
+          fi
+
           echo "Cutting vertical 9:16 clips from demo chat spikes..."
-          node chat-clips.mjs demo_chat.json \
-            --video demo_stream.mp4 \
-            --top "${{ inputs.top }}" \
-            --before "${{ inputs.before }}" \
-            --after "${{ inputs.after }}" \
-            --gap "${{ inputs.gap }}" \
-            --layout "${{ inputs.layout }}" \
-            --out clips
+          python3 chat_clips.py demo_chat.json             --video demo_stream.mp4             --top "${{ inputs.top }}"             --before "${{ inputs.before }}"             --after "${{ inputs.after }}"             --gap "${{ inputs.gap }}"             --layout "${{ inputs.layout }}"             --cam "${{ inputs.cam_pos }}"             --min-score "${{ inputs.min_score }}"             $EMOTE_FLAG             --out clips
 
       - name: Handle Live Twitch VOD Mode
         if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
@@ -109,16 +126,13 @@ jobs:
           ./TwitchDownloaderCLI chatdownload --id "${{ inputs.vod_url }}" -o chat.json
           ls -lh chat.json
 
+          EMOTE_FLAG=""
+          if [ "${{ inputs.emotes }}" = "true" ]; then
+            EMOTE_FLAG="--emotes"
+          fi
+
           echo "Cutting vertical clips from VOD..."
-          node chat-clips.mjs chat.json \
-            --vod "${{ inputs.vod_url }}" \
-            --top "${{ inputs.top }}" \
-            --before "${{ inputs.before }}" \
-            --after "${{ inputs.after }}" \
-            --gap "${{ inputs.gap }}" \
-            --layout "${{ inputs.layout }}" \
-            --tdl ./TwitchDownloaderCLI \
-            --out clips
+          python3 chat_clips.py chat.json             --vod "${{ inputs.vod_url }}"             --top "${{ inputs.top }}"             --before "${{ inputs.before }}"             --after "${{ inputs.after }}"             --gap "${{ inputs.gap }}"             --layout "${{ inputs.layout }}"             --cam "${{ inputs.cam_pos }}"             --min-score "${{ inputs.min_score }}"             --tdl ./TwitchDownloaderCLI             $EMOTE_FLAG             --out clips
 
       - name: Apply Hook Caption (Optional)
         if: ${{ inputs.hook_text != '' }}

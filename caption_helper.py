@@ -225,6 +225,8 @@ def main():
     json_sub_file = None
     ass_file = None
     style = "bold_yellow"
+    pos = "bottom"
+    layout = "blur"
 
     i = 1
     while i < len(args):
@@ -246,6 +248,12 @@ def main():
         elif args[i] == "--style" and i + 1 < len(args):
             style = args[i + 1]
             i += 2
+        elif args[i] == "--pos" and i + 1 < len(args):
+            pos = args[i + 1]
+            i += 2
+        elif args[i] == "--layout" and i + 1 < len(args):
+            layout = args[i + 1]
+            i += 2
         else:
             i += 1
 
@@ -256,7 +264,9 @@ def main():
         with open(json_sub_file, "r", encoding="utf-8") as f:
             cues = json.load(f)
         temp_ass = in_path.with_name(f"{in_path.stem}_temp.ass")
-        build_narrator_ass(cues, str(temp_ass))
+        # Position subtitle in middle (y=800) for stack layout or if --pos middle is passed
+        y_coord = 800 if (pos == "middle" or layout == "stack") else 1574
+        build_narrator_ass(cues, str(temp_ass), y_pos=y_coord)
         burn_ass_subtitles(input_file, str(temp_ass), out_file)
         if temp_ass.exists():
             temp_ass.unlink()

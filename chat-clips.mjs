@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-/**
- * chat-clips: find the best moments of a Twitch stream from its chat, and cut them as vertical clips.
- *
- * 1. Get the chat:   TwitchDownloaderCLI chatdownload --id <VOD> -o chat.json
- * 2. Find + cut:     node chat-clips.mjs chat.json --vod <VOD>        (downloads only the clip pieces)
- *              or:   node chat-clips.mjs chat.json --video vod.mp4    (cuts from a video you already have)
- *              or:   node chat-clips.mjs chat.json                    (just lists the moments)
- *
- * Needs: Node 18+, ffmpeg on PATH (for cutting), TwitchDownloaderCLI on PATH or --tdl <path> (for --vod).
- * Free, MIT. Only clip creators who allow it.
- */
+// chat-clips: find the best moments of a Twitch stream from its chat, and cut them as vertical clips.
+//
+// 1. Get the chat:   TwitchDownloaderCLI chatdownload --id <VOD> -o chat.json
+// 2. Find + cut:     node chat-clips.mjs chat.json --vod <VOD>        (downloads only the clip pieces)
+//              or:   node chat-clips.mjs chat.json --video vod.mp4    (cuts from a video you already have)
+//              or:   node chat-clips.mjs chat.json                    (just lists the moments)
+//
+// Needs: Node 18+, ffmpeg on PATH (for cutting), TwitchDownloaderCLI on PATH or --tdl <path> (for --vod).
+// Free, MIT. Only clip creators who allow it.
 
-import { readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
@@ -34,6 +32,10 @@ Usage:
 Options:
   --vod <URL|ID>      Twitch VOD URL or ID (downloads only the 30s clips needed)
   --video <file.mp4>  Cut from a local video file you already downloaded
+  --emotes            Filter by reaction emotes/keywords (LMAO, KEKW, 💀, WTF, NO WAY, etc.)
+  --min-score <num>   Minimum spike multiplier threshold (default: 1.0)
+  --layout <type>     Vertical format: 'stack' (cam top, game bottom), 'blur' (ambient fill), 'crop' (center zoom)
+  --cam <pos>         Webcam location for 'stack': 'bottom-left' (default), 'top-left', 'bottom-right', 'top-right'
   --top <number>      Number of clips to make (default: 5)
   --before <seconds>  Seconds before spike to start clip (default: 20)
   --after <seconds>   Seconds after spike to end clip (default: 10)
@@ -45,9 +47,8 @@ Options:
   --help, -h          Show this help message
 
 Examples:
-  node chat-clips.mjs chat.json
-  node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890
-  node chat-clips.mjs chat.json --video stream.mp4 --top 10 --before 25 --out highlights
+  node chat-clips.mjs chat.json --emotes --layout stack
+  node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890 --top 3
 `);
   process.exit(chatFile ? 0 : 1);
 }
@@ -60,8 +61,13 @@ const GAP = Number(opt('gap', 90));       // min seconds between two clips
 const OUT = opt('out', 'clips');
 const VOD = opt('vod');
 const VIDEO = opt('video');
-const LAYOUT = opt('layout', 'blur');     // 'blur' (ambient fill, full HUD/facecam) or 'crop' (center zoom)
+const LAYOUT = opt('layout', 'stack');    // 'stack' (cam top, game bottom), 'blur' (ambient 16:9), or 'crop'
+const CAM = opt('cam', 'bottom-left');
+const MIN_SCORE = Number(opt('min-score', 1.0));
+const FILTER_EMOTES = hasFlag('emotes') || hasFlag('filter-emotes');
 const DRY_RUN = hasFlag('dry-run');
+
+const REACTION_RE = /\b(lmao+|kekw|omegalul|lol+|rofl|dead|💀|😭|icant|wtf|no\s*way|holy|omg|yooo+|clutch|fail|cooked|doxxed|w|l)\b/i;
 
 // Smart binary detection for TwitchDownloaderCLI
 const resolveTDL = () => {
@@ -74,7 +80,7 @@ const resolveTDL = () => {
 };
 const TDL = resolveTDL();
 
-// --- 1. Read chat (TwitchDownloader JSON: comments[].content_offset_seconds) ---
+// --- 1. Read chat ---
 if (!existsSync(chatFile)) {
   console.error(`Error: Chat file not found: ${chatFile}`);
   process.exit(1);
@@ -89,12 +95,21 @@ try {
 }
 
 const comments = Array.isArray(chat) ? chat : (chat.comments ?? []);
-const times = comments
-  .map((c) => (typeof c === 'number' ? c : c.content_offset_seconds))
-  .filter((t) => typeof t === 'number' && !isNaN(t) && t >= 0);
+const times = [];
+for (const c of comments) {
+  const t = typeof c === 'number' ? c : c.content_offset_seconds;
+  const body = c?.message?.body ?? '';
+  if (typeof t === 'number' && !isNaN(t) && t >= 0) {
+    if (FILTER_EMOTES) {
+      if (REACTION_RE.test(body)) times.push(t);
+    } else {
+      times.push(t);
+    }
+  }
+}
 
 if (times.length === 0) {
-  console.error('Error: No chat messages found. Is this a TwitchDownloader chat .json file?');
+  console.error(FILTER_EMOTES ? 'Error: No messages matched reaction emotes/keywords.' : 'Error: No chat messages found.');
   process.exit(1);
 }
 
@@ -107,97 +122,92 @@ for (const t of times) {
   if (idx < totalBuckets) counts[idx]++;
 }
 
-// --- 3. Score = how much louder than the chat around it (local median) ---
-// Compares each moment to 5 minutes (300s) before and after
+// --- 3. Score calculation (Local moving median baseline) ---
 const median = (arr) => {
   if (arr.length === 0) return 0;
   const s = [...arr].sort((x, y) => x - y);
   return s[Math.floor(s.length / 2)] ?? 0;
 };
 
-const AROUND = Math.max(1, Math.round(300 / BUCKET)); // 5 minutes on each side
-const score = counts.map((n, i) => {
-  const windowSlice = counts.slice(Math.max(0, i - AROUND), i + AROUND + 1);
-  const baseline = median(windowSlice);
-  return n / (baseline + 1);
-});
+const around = Math.max(1, Math.round(300 / BUCKET));
+const scores = [];
+for (let i = 0; i < counts.length; i++) {
+  const left = Math.max(0, i - around);
+  const right = Math.min(counts.length, i + around + 1);
+  const base = median(counts.slice(left, right));
+  scores.push(counts[i] / (base + 1));
+}
 
-// --- 4. Pick the top spikes, keep them apart ---
-const order = score.map((s, i) => i).sort((a, b) => score[b] - score[a]);
+// --- 4. Find top peaks ---
+const order = Array.from({ length: counts.length }, (_, k) => k).sort((a, b) => scores[b] - scores[a]);
 const peaks = [];
-for (const i of order) {
+for (const idx of order) {
   if (peaks.length >= TOP) break;
-  const t = i * BUCKET;
-  if (counts[i] < 5) continue; // Minimum 5 messages in spike to filter tiny noise
+  if (counts[idx] < 5 || scores[idx] < MIN_SCORE) continue;
+  const t = idx * BUCKET;
   if (peaks.some((p) => Math.abs(p.t - t) < GAP)) continue;
-  peaks.push({
-    t,
-    msgs: counts[i],
-    score: +score[i].toFixed(1),
-  });
+  peaks.push({ t, msgs: counts[idx], score: Number(scores[idx].toFixed(1)) });
 }
 peaks.sort((a, b) => a.t - b.t);
 
-// --- 5. Show ASCII visualization and summary ---
-const hms = (s) => {
-  s = Math.max(0, Math.round(s));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor(s / 60) % 60;
-  const sec = s % 60;
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+// --- 5. Print ASCII graph and top moments ---
+const hms = (sec) => {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
-
 const bars = ' ▁▂▃▄▅▆▇█';
-const W = 60;
-const per = Math.max(1, Math.ceil(counts.length / W));
-const cols = Array.from({ length: Math.ceil(counts.length / per) }, (_, k) =>
-  Math.max(...counts.slice(k * per, (k + 1) * per))
-);
-const topVal = Math.max(...cols, 1);
+const W = 60, per = Math.ceil(counts.length / W);
+const cols = Array.from({ length: Math.ceil(counts.length / per) }, (_, k) => Math.max(...counts.slice(k * per, (k + 1) * per)));
+const top = Math.max(...cols) || 1;
 
-console.log(`\n💬 ${times.length} chat messages, ⏱ ${hms(length)} of stream\n`);
-console.log(cols.map((c) => bars[Math.min(8, Math.round((c / topVal) * 8))]).join(''));
-const endHms = hms(length);
-const spacing = Math.max(1, cols.length - endHms.length - 7);
-console.log(`0:00:00${' '.repeat(spacing)}${endHms}\n`);
+const modeText = FILTER_EMOTES ? ' (Reaction Emote Filter Active)' : '';
+console.log(`\n💬 ${times.length} chat messages${modeText}, ⏱ ${hms(length)} of stream\n`);
+console.log(cols.map((c) => bars[Math.round((c / top) * (bars.length - 1))]).join(''));
+console.log(`0:00:00${' '.repeat(Math.max(1, cols.length - 14))}${hms(length)}\n`);
+
+if (peaks.length === 0) {
+  console.log(`No moments reached the minimum multiplier threshold of ${MIN_SCORE}x.`);
+  process.exit(0);
+}
 
 console.log('Top Moments:');
 peaks.forEach((p, k) => {
   const clipStart = Math.max(0, p.t - BEFORE);
   const clipEnd = p.t + AFTER;
-  console.log(
-    `#${k + 1}  ${hms(p.t)}  ${p.msgs} msgs in ${BUCKET}s  (${p.score}x normal)  -> clip ${hms(clipStart)} to ${hms(clipEnd)}`
-  );
+  console.log(`#${k + 1}  ${hms(p.t)}  ${p.msgs} msgs in ${BUCKET}s  (${p.score}x normal)  -> clip ${hms(clipStart)} to ${hms(clipEnd)}`);
 });
 
 mkdirSync(OUT, { recursive: true });
 const momentsData = peaks.map((p, k) => {
-  const start = Math.max(0, p.t - BEFORE);
-  const end = p.t + AFTER;
+  const clipStart = Math.max(0, p.t - BEFORE);
+  const clipEnd = p.t + AFTER;
   return {
     rank: k + 1,
     t: p.t,
-    timestamp: hms(p.t),
     msgs: p.msgs,
     score: p.score,
-    start,
-    end,
-    clipStart: hms(start),
-    clipEnd: hms(end),
-    duration: end - start,
+    start: clipStart,
+    end: clipEnd,
+    clipStart: hms(clipStart),
+    clipEnd: hms(clipEnd),
+    duration: clipEnd - clipStart,
     clipFile: `clip_${String(k + 1).padStart(2, '0')}.mp4`,
   };
 });
-
 writeFileSync(join(OUT, 'moments.json'), JSON.stringify(momentsData, null, 2));
+console.log(`\n✅ Saved moment data to ${join(OUT, 'moments.json')}.`);
 
-if (DRY_RUN || (!VOD && !VIDEO)) {
-  console.log(`\n✅ Saved moment data to ${join(OUT, 'moments.json')}.`);
+if (DRY_RUN) {
+  console.log('Dry run requested; skipping video cutting.');
+  process.exit(0);
+}
+
+if (!VOD && !VIDEO) {
   console.log('To render clips, add --vod <ID/URL> or --video <file.mp4>');
   process.exit(0);
 }
 
-// --- 6. Cut vertical clips (9:16 format) ---
+// --- 6. Cut vertical clips ---
 const run = (cmd, cmdArgs) => {
   const r = spawnSync(cmd, cmdArgs, { stdio: 'inherit' });
   if (r.status !== 0) {
@@ -205,7 +215,6 @@ const run = (cmd, cmdArgs) => {
   }
 };
 
-// 9:16 layout filters: 'blur' (ambient fill with full 16:9 content) or 'crop' (center zoom)
 const getFilterArgs = () => {
   if (LAYOUT === 'crop') {
     return [
@@ -213,9 +222,31 @@ const getFilterArgs = () => {
       'crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,setsar=1',
     ];
   }
+  if (LAYOUT === 'stack') {
+    // Cam presets
+    const CAM_PRESETS = {
+      'bottom-left': { cx: 0, cy: 240, cw: 460, ch: 360 },
+      'top-left': { cx: 0, cy: 0, cw: 460, ch: 360 },
+      'bottom-right': { cx: 1460, cy: 240, cw: 460, ch: 360 },
+      'top-right': { cx: 1460, cy: 0, cw: 460, ch: 360 },
+    };
+    const c = CAM_PRESETS[CAM] || CAM_PRESETS['bottom-left'];
+    return [
+      '-filter_complex',
+      `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.35[bg];` +
+      `[0:v]crop=w=${c.cw}:h=${c.ch}:x=${c.cx}:y=${c.cy},scale=1080:720[cam];` +
+      `[0:v]crop=w=1440:h=1080:x=240:y=0,scale=1080:1080[game];` +
+      `[bg][cam]overlay=0:0[t1];` +
+      `[t1][game]overlay=0:840[v_out]`,
+      '-map', '[v_out]',
+      '-map', '0:a?',
+    ];
+  }
   return [
     '-filter_complex',
-    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];[0:v]scale=1080:-1[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1',
+    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15[bg];[0:v]scale=1080:-1[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]',
+    '-map', '[v_out]',
+    '-map', '0:a?',
   ];
 };
 
@@ -263,7 +294,7 @@ momentsData.forEach((p) => {
     ]);
     rmSync(piece, { force: true });
   }
+  console.log(`  ✅ Saved: ${out}`);
 });
 
-console.log(`\n✨ Done! ${momentsData.length} vertical clips generated in ./${OUT}/`);
-console.log('Drop them into CapCut, OpenShorts, or use caption_tool.py to add captions.');
+console.log(`\n🎉 Finished! Processed ${momentsData.length} clips in ${OUT}/`);

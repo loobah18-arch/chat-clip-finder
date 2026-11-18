@@ -60,15 +60,23 @@ def detect(video, panel_aspect=1080 / 700):
     for fs in faces:
         for (x, y, w, h) in fs:
             cx, cy = x + w / 2, y + h / 2
-            if h > 0.35 * src_h:            # a face this big is a full-screen camera, not an overlay
+            # 1. Overlay webcam face size: not too big, not too small
+            if not (0.05 * src_h <= h <= 0.28 * src_h):
                 continue
-            if 0.3 * src_w < cx < 0.7 * src_w and 0.3 * src_h < cy < 0.7 * src_h:
-                continue                    # overlays sit near edges / corners, not dead centre
-            hits = sum(any(abs(a + c / 2 - cx) < tol and abs(b + d / 2 - cy) < tol for a, b, c, d in g)
-                       for g in faces)
+            # 2. Must be in one of the 4 corners (top-left, top-right, bottom-left, bottom-right)
+            in_left = cx < 0.30 * src_w
+            in_right = cx > 0.70 * src_w
+            in_top = cy < 0.40 * src_h
+            in_bottom = cy > 0.60 * src_h
+            if not ((in_left and in_top) or (in_right and in_top) or (in_left and in_bottom) or (in_right and in_bottom)):
+                continue
+            # 3. Must be stable in position and size across frames
+            hits = sum(any(abs(a + c / 2 - cx) < tol and abs(b + d / 2 - cy) < tol and abs(d - h) < 0.08 * src_h
+                           for a, b, c, d in g) for g in faces)
             if hits > hits_best:
                 best, hits_best = (cx, cy, h), hits
-    if not best or hits_best < 0.5 * len(frames):
+    # Real webcam face overlay is present in >= 65% of sampled frames
+    if not best or hits_best < 0.65 * len(frames):
         return None
     cx, cy, fh = best
     bh = min(src_h, 2.6 * fh)

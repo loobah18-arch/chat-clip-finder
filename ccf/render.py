@@ -53,27 +53,31 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
         cx, cy, cw, ch = cam
         game_h = 1920 - CAM_H
         gw = min(src_w, int(src_h * 1080 / game_h) // 2 * 2)
-        g = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale=1080:{CAM_H}:force_original_aspect_ratio=increase,"
+        g = (f"[0:v]fps={fps},split=2[in_cam][in_game];"
+             f"[in_cam]crop={cw}:{ch}:{cx}:{cy},scale=1080:{CAM_H}:force_original_aspect_ratio=increase,"
              f"crop=1080:{CAM_H},setsar=1[cam];"
-             f"[0:v]crop={gw}:{src_h}:(iw-{gw})/2:0,scale=1080:{game_h},setsar=1[game];"
-             f"[cam][game]vstack=inputs=2,fps={fps}[base]")
+             f"[in_game]crop={gw}:{src_h}:(iw-{gw})/2:0,scale=1080:{game_h},setsar=1[game];"
+             f"[cam][game]vstack=inputs=2[base]")
         return g, CAM_H, 190
     if layout == "gameplay":
         fw = min(src_w, src_h) // 2 * 2       # square centre of the action, zoomed
         top = 360
-        # Fast background blur: downscale to 180x320 first, blur lightly, scale up
-        # Full-res 1080x1920 boxblur=30:3 takes 20+ minutes on 2-core CPU; this takes <15s
-        g = (f"[0:v]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,"
+        # Fast background blur: split input, downscale to 180x320 first, blur lightly, scale up
+        g = (f"[0:v]fps={fps},split=2[in_bg][in_fg];"
+             f"[in_bg]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,"
              f"boxblur=5:1,scale=1080:1920,eq=brightness=-0.22:saturation=1.3[bg];"
-             f"[0:v]crop={fw}:{src_h}:(iw-{fw})/2:0,scale=1080:{GAME_FG_H},setsar=1[fg];"
-             f"[bg][fg]overlay=0:{top},fps={fps}[base]")
+             f"[in_fg]crop={fw}:{src_h}:(iw-{fw})/2:0,scale=1080:{GAME_FG_H},setsar=1[fg];"
+             f"[bg][fg]overlay=0:{top}:shortest=1[base]")
         return g, top + GAME_FG_H + 75, top - 60
     if layout == "crop":
-        g = (f"[0:v]crop=floor(ih*9/16/2)*2:ih:(iw-ow)/2:0,scale=1080:1920,setsar=1,fps={fps}[base]")
+        g = (f"[0:v]fps={fps},crop=floor(ih*9/16/2)*2:ih:(iw-ow)/2:0,scale=1080:1920,setsar=1[base]")
         return g, 1300, 190
     # blur
-    g = (f"[0:v]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,boxblur=5:1,"
-         f"scale=1080:1920,eq=brightness=-0.15[bg];[0:v]scale=1080:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={fps}[base]")
+    g = (f"[0:v]fps={fps},split=2[in_bg][in_fg];"
+         f"[in_bg]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,boxblur=5:1,"
+         f"scale=1080:1920,eq=brightness=-0.15[bg];"
+         f"[in_fg]scale=1080:-2,setsar=1[fg];"
+         f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[base]")
     return g, 1330, 190
 
 
@@ -89,8 +93,7 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
     graph += f";[{last}]subtitles='{_esc(ass)}':fontsdir='{_esc(FONT_DIR)}'[subs]"
     last = "subs"
     if progress_bar and dur > 0:
-        graph += (f";color=c=0xFFE500:s=1080x10:d={dur:.3f}:r={fps}[bar];"
-                  f"[{last}][bar]overlay=x='-W+W*t/{dur:.3f}':y=H-10:shortest=1[v]")
+        graph += f";[{last}]drawbox=x=0:y=ih-10:w='iw*t/{dur:.3f}':h=10:color=0xFFE500:t=fill[v]"
         last = "v"
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(piece), "-filter_complex", graph,
            "-map", f"[{last}]", "-map", "0:a?",

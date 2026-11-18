@@ -61,8 +61,10 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
     if layout == "gameplay":
         fw = min(src_w, src_h) // 2 * 2       # square centre of the action, zoomed
         top = 360
-        g = (f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-             f"boxblur=30:3,eq=brightness=-0.22:saturation=1.3[bg];"
+        # Fast background blur: downscale to 180x320 first, blur lightly, scale up
+        # Full-res 1080x1920 boxblur=30:3 takes 20+ minutes on 2-core CPU; this takes <15s
+        g = (f"[0:v]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,"
+             f"boxblur=5:1,scale=1080:1920,eq=brightness=-0.22:saturation=1.3[bg];"
              f"[0:v]crop={fw}:{src_h}:(iw-{fw})/2:0,scale=1080:{GAME_FG_H},setsar=1[fg];"
              f"[bg][fg]overlay=0:{top},fps={fps}[base]")
         return g, top + GAME_FG_H + 75, top - 60
@@ -70,8 +72,8 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
         g = (f"[0:v]crop=floor(ih*9/16/2)*2:ih:(iw-ow)/2:0,scale=1080:1920,setsar=1,fps={fps}[base]")
         return g, 1300, 190
     # blur
-    g = (f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,"
-         f"eq=brightness=-0.15[bg];[0:v]scale=1080:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={fps}[base]")
+    g = (f"[0:v]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,boxblur=5:1,"
+         f"scale=1080:1920,eq=brightness=-0.15[bg];[0:v]scale=1080:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={fps}[base]")
     return g, 1330, 190
 
 
@@ -87,7 +89,7 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
     graph += f";[{last}]subtitles='{_esc(ass)}':fontsdir='{_esc(FONT_DIR)}'[subs]"
     last = "subs"
     if progress_bar and dur > 0:
-        graph += (f";color=c=0xFFE500:s=1080x10:r={fps}[bar];"
+        graph += (f";color=c=0xFFE500:s=1080x10:d={dur:.3f}:r={fps}[bar];"
                   f"[{last}][bar]overlay=x='-W+W*t/{dur:.3f}':y=H-10:shortest=1[v]")
         last = "v"
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(piece), "-filter_complex", graph,
@@ -95,7 +97,10 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{dur:.3f}", str(out_path)]
-    res = subprocess.run(cmd)
+    try:
+        res = subprocess.run(cmd, timeout=300)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ffmpeg render timed out after 300s for {piece}")
     if res.returncode != 0:
         raise RuntimeError(f"ffmpeg render failed for {piece}")
     return {"layout": layout, "cam": cam, "duration": dur}

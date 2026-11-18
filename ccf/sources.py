@@ -44,7 +44,7 @@ def find_cookies(explicit=None):
 def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=False):
     exe = shutil.which("yt-dlp")
     cmd = [exe] if exe else [sys.executable, "-m", "yt_dlp"]
-    cmd += ["--no-warnings", "--no-playlist", "--retries", "5", "--fragment-retries", "10"]
+    cmd += ["--no-warnings", "--no-playlist", "--retries", "3", "--fragment-retries", "5", "--socket-timeout", "45"]
     if shutil.which("node"):
         cmd += ["--js-runtimes", "node", "--remote-components", "ejs:github"]
 
@@ -80,9 +80,12 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
     return cmd
 
 
-def _run(cmd, what):
+def _run(cmd, what, timeout=300):
     print(f"   $ {' '.join(c if ' ' not in c else repr(c) for c in cmd[:3])} ... ({what})", flush=True)
-    res = subprocess.run(cmd)
+    try:
+        res = subprocess.run(cmd, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{what} timed out after {timeout}s.")
     if res.returncode != 0:
         raise RuntimeError(f"{what} failed (exit {res.returncode}). For YouTube, refresh your cookies "
                            f"(export them again while logged in) or set a proxy.")
@@ -232,7 +235,7 @@ def download_audio(url, out_path, cookies=None, proxy=None):
 
     # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts Tier 3c)
     tiers = [
-        ("android,mweb,web", "bestaudio/22/18/b", "Tier 3c: android,mweb,web (fmt 22/18/b)"),
+        ("android,mweb,web", "ba/b/bestaudio/18/b", "Tier 3c: android,mweb,web (fmt ba/b/18)"),
         ("web,mweb", "ba/b/bestaudio/18/b", "Tier 1: web,mweb + bgutil/cookies"),
         ("ios", "best/18/b", "Tier 2: ios HLS (no cookies)"),
         ("android_vr", "best/18/b", "Tier 2: android_vr (no cookies)"),

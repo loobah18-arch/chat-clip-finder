@@ -66,7 +66,7 @@ def main(argv=None):
     for i, c in enumerate(ranked[:10], 1):
         mins = int(c["duration"] // 60) if c["duration"] else "?"
         tag = "ended stream" if c["live_status"] == "was_live" else "video"
-        print(f"  {i:>2}. {c['views']:>9,} views  {mins:>4} min  {tag:<12} {c['channel'][:22]:<22} | {c['title'][:60]}")
+        print(f"  {i:>2}. {(format(c['views'], ',') if c.get('views_known', True) else '?'):>9} views  {mins:>4} min  {tag:<12} {c['channel'][:22]:<22} | {c['title'][:60]}")
     if a.list or not picks:
         if not picks:
             print("\nNothing new worth clipping right now.")

@@ -86,7 +86,8 @@ def _yt_candidate(e, origin):
         "url": f"https://www.youtube.com/watch?v={vid}",
         "title": e.get("title") or "",
         "channel": e.get("channel") or e.get("uploader") or "",
-        "views": int(e.get("view_count") or 0),
+        "views": int(e.get("view_count") or e.get("concurrent_view_count") or 0),
+        "views_known": bool(e.get("view_count") or e.get("concurrent_view_count")),
         "duration": float(e.get("duration") or 0),
         "live_status": e.get("live_status") or "",
         "platform": "youtube",
@@ -212,7 +213,8 @@ def discover(game="gta6", count=2, min_minutes=10, min_views=1000, seen=(), cook
             skip("too short"); continue  # Shorts and short edits: nothing left to clip
         if not c.get("category_gta6") and not is_gta6_gameplay(c["title"], game):
             skip("not gameplay of this game"); continue
-        if c["views"] < min_views and not c.get("followed"):
+        # some regions/runners get no view count from search: the search is already sorted by views
+        if c.get("views_known", True) and c["views"] < min_views and not c.get("followed"):
             skip("too few views"); continue
         # rank: followed creators first, then finished streams (they have chat), then views
         c["score"] = (2 if c.get("followed") else 0) + (1 if c["live_status"] == "was_live" else 0) \

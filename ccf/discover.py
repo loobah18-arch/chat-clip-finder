@@ -211,7 +211,7 @@ def discover(game="gta6", count=2, min_minutes=10, min_views=1000, seen=(), cook
             skip("still live"); continue  # chat replay + seeking only work once the stream has ended
         if c["duration"] and c["duration"] < min_minutes * 60:
             skip("too short"); continue  # Shorts and short edits: nothing left to clip
-        if not c.get("category_gta6") and not is_gta6_gameplay(c["title"], game):
+        if not is_gta6_gameplay(c["title"], game):
             skip("not gameplay of this game"); continue
         # some regions/runners get no view count from search: the search is already sorted by views
         if c.get("views_known", True) and c["views"] < min_views and not c.get("followed"):

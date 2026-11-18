@@ -171,28 +171,30 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         _run(cmd, "segment download")
         return out_path
 
-    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
+    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts Tier 3c)
     tiers = [
-        ("web,mweb", True, True, "Tier 1: web,mweb + bgutil/cookies"),
-        ("ios", False, False, "Tier 2: ios HLS (no cookies)"),
-        ("visionos", False, False, "Tier 2: visionos HLS (no cookies)"),
-        ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
-        ("android", False, False, "Tier 2: android (no cookies)"),
+        ("android,mweb,web", "bestvideo[height<=720]+bestaudio/best[height<=720]/22/18/b", "Tier 3c: 720p/progressive native bypass"),
+        ("web,mweb", "bv*[height<=1080][fps<=60]+ba/best[height<=1080]/18/b", "Tier 1: web,mweb + bgutil/cookies"),
+        ("ios", "best[height<=1080]/18/b", "Tier 2: ios HLS (no cookies)"),
+        ("android_vr", "best[height<=1080]/18/b", "Tier 2: android_vr (no cookies)"),
+        ("android", "22/18/b", "Tier 2: android progressive"),
     ]
 
     last_err = None
-    for client, use_cookies, use_pot, label in tiers:
+    for client, fmt, label in tiers:
         try:
             print(f"   🔄 Attempting segment download via {label}...", flush=True)
+            use_cookies = "no cookies" not in label
             cmd = _ytdlp_base(
                 cookies=cookies if use_cookies else None,
                 proxy=proxy,
                 client=client,
-                pot=use_pot,
+                pot=use_cookies,
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "-f", "bv*[height<=1080][fps<=60]+ba/best[height<=1080]/18/b",
+                "--downloader", "native",
+                "-f", fmt,
                 "--download-sections", f"*{start:.2f}-{end:.2f}",
                 "--force-keyframes-at-cuts",
                 "--merge-output-format", "mp4",
@@ -228,28 +230,30 @@ def download_audio(url, out_path, cookies=None, proxy=None):
         _run(cmd, "audio download")
         return target_m4a
 
-    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
+    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts Tier 3c)
     tiers = [
-        ("web,mweb", True, True, "Tier 1: web,mweb + bgutil/cookies"),
-        ("ios", False, False, "Tier 2: ios HLS (no cookies)"),
-        ("visionos", False, False, "Tier 2: visionos HLS (no cookies)"),
-        ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
-        ("android", False, False, "Tier 2: android (no cookies)"),
+        ("android,mweb,web", "bestaudio/22/18/b", "Tier 3c: android,mweb,web (fmt 22/18/b)"),
+        ("web,mweb", "ba/b/bestaudio/18/b", "Tier 1: web,mweb + bgutil/cookies"),
+        ("ios", "best/18/b", "Tier 2: ios HLS (no cookies)"),
+        ("android_vr", "best/18/b", "Tier 2: android_vr (no cookies)"),
+        ("android", "18/b", "Tier 2: android (no cookies)"),
     ]
 
     last_err = None
-    for client, use_cookies, use_pot, label in tiers:
+    for client, fmt, label in tiers:
         try:
             print(f"   🔄 Attempting audio download via {label}...", flush=True)
+            use_cookies = "no cookies" not in label
             cmd = _ytdlp_base(
                 cookies=cookies if use_cookies else None,
                 proxy=proxy,
                 client=client,
-                pot=use_pot,
+                pot=use_cookies,
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "-f", "ba/b/bestaudio/best[height<=720]/18/b",
+                "--downloader", "native",
+                "-f", fmt,
                 "-x", "--audio-format", "m4a",
                 "-o", tmpl,
                 url

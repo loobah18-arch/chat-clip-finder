@@ -16,6 +16,11 @@ GTA6_TAGS = ["#GTA6", "#GTAVI", "#GrandTheftAuto6", "#ViceCity", "#Shorts", "#Ga
 GENERIC_TAGS = ["#Shorts", "#Gaming", "#Twitch", "#Streamer", "#Clips"]
 
 
+def _tc(text):
+    """Title Case without breaking apostrophes (Couldn't, not Couldn'T)."""
+    return " ".join(w[:1].upper() + w[1:].lower() for w in text.split())
+
+
 def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None):
     rnd = random.Random(seed if seed is not None else rank)
     hook = fixed_hook or rnd.choice(HOOKS.get(kind) or HOOKS[None])
@@ -29,10 +34,10 @@ def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None)
         }.get(kind, f"Best GTA 6 moment from {who or 'stream'}")
         tags = GTA6_TAGS
     else:
-        base = f"{who + ': ' if who else ''}{hook.title()}"
+        base = f"{who + ': ' if who else ''}{_tc(hook)}"
         tags = GENERIC_TAGS
     if phrase and len(base) + len(phrase) < 70 and rnd.random() < 0.5:
-        base = f"{base} ({phrase.title()})"
+        base = f"{base} ({_tc(phrase)})"
     emoji = {"laugh": " 💀", "hype": " 🔥", "shock": " 😳", "game": " 🚨"}.get(kind, "")
     title = (base + emoji)[:90]
     credit_line = f"Credit: {who} (go follow!)" if who else ""

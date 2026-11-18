@@ -1,0 +1,138 @@
+name: Auto-Clip Top GTA 6 Streams
+
+# Every 4 hours: find today's most-watched GTA 6 streams/videos that are not clipped yet,
+# cut the best moments into Shorts, keep them as an artifact, and (only if you turn it on) upload.
+on:
+  schedule:
+    - cron: '30 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      count:
+        description: 'How many new streams/videos to clip'
+        default: '2'
+      top:
+        description: 'Shorts per stream/video'
+        default: '3'
+      min_views:
+        description: 'Skip anything with fewer views (creators in streamers.txt are always allowed)'
+        default: '1000'
+      list_only:
+        description: 'Only list what it would pick (no clipping)'
+        type: boolean
+        default: false
+      upload_to_youtube:
+        description: 'Upload the Shorts to YouTube'
+        type: boolean
+        default: false
+      privacy:
+        description: 'YouTube privacy'
+        type: choice
+        default: private
+        options: [public, unlisted, private]
+
+concurrency:
+  group: auto-clip
+  cancel-in-progress: false
+
+jobs:
+  auto-clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: write   # to save state/processed.json so the next run picks new videos
+    env:
+      COUNT: ${{ inputs.count || '2' }}
+      TOP: ${{ inputs.top || '3' }}
+      MIN_VIEWS: ${{ inputs.min_views || '1000' }}
+      # scheduled runs upload only if you set the repo variable AUTO_UPLOAD to true
+      DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
+      PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'private' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install FFmpeg + Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp
+          pip install -r requirements.txt
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-small-v1
+
+      - name: YouTube cookies (from repo secret)
+        env:
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          if [ -n "${YOUTUBE_COOKIES:-}" ]; then
+            python3 - <<'PY'
+          import base64, os
+          raw = os.environ["YOUTUBE_COOKIES"].strip()
+          text = raw if ("# Netscape" in raw or "\t" in raw) else base64.b64decode(raw).decode("utf-8")
+          open("youtube_cookies.txt", "w", encoding="utf-8").write(text + "\n")
+          PY
+            echo "🍪 cookies ready"
+          else
+            echo "No YOUTUBE_COOKIES secret: YouTube may ask to sign in"
+          fi
+
+      - name: Download TwitchDownloaderCLI
+        run: |
+          URL=$(curl -s https://api.github.com/repos/lay295/TwitchDownloader/releases/latest | grep -o 'https://[^"]*CLI[^"]*Linux-x64.zip' | head -n 1)
+          [ -z "$URL" ] && URL="https://github.com/lay295/TwitchDownloader/releases/download/1.55.2/TwitchDownloaderCLI-1.55.2-Linux-x64.zip"
+          curl -sL -o tdl.zip "$URL" && unzip -o -q tdl.zip && chmod +x TwitchDownloaderCLI || echo "TwitchDownloader unavailable"
+
+      - name: Find top GTA 6 streams + make Shorts
+        env:
+          YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+        run: |
+          ARGS=(--count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --tdl ./TwitchDownloaderCLI --out clips)
+          [ "${{ inputs.list_only }}" = "true" ] && ARGS+=(--list)
+          set +e
+          python3 auto_clips.py "${ARGS[@]}"
+          RC=$?
+          rm -f youtube_cookies.txt
+          ls -lhR clips/ 2>/dev/null | head -50
+          [ "${{ inputs.list_only }}" = "true" ] && exit 0
+          # exit 1 only means "no Shorts this time"; don't fail the schedule for that
+          exit 0
+
+      - name: Remember what was clipped
+        if: ${{ !inputs.list_only }}
+        run: |
+          if [ -n "$(git status --porcelain state/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/processed.json
+            git commit -m "chore: auto-clip state [skip ci]"
+            git pull --rebase -q && git push -q || echo "state push failed (will re-check next run)"
+          fi
+
+      - name: Upload Shorts as artifact
+        if: ${{ hashFiles('clips/**/*.mp4') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-shorts
+          path: |
+            clips/**/*.mp4
+            clips/posts.json
+            clips/**/moments.json
+          retention-days: 7
+
+      - name: Publish to YouTube Shorts
+        if: ${{ env.DO_UPLOAD == 'true' && hashFiles('clips/posts.json') != '' }}
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+        run: python3 youtube_uploader.py --posts clips/posts.json --privacy "$PRIVACY"

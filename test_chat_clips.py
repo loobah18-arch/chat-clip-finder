@@ -192,5 +192,15 @@ class TestChatClipFinder(unittest.TestCase):
             self.assertIn("@kai", txt)
 
 
+    def test_discover_keeps_only_gta6_gameplay(self):
+        from ccf.discover import is_gta6_gameplay as g
+        self.assertTrue(g("🔴 GTA 6 LIVE - FIRST TIME PLAYING"))
+        self.assertTrue(g("GTA 6 Gameplay Walkthrough Part 1"))
+        self.assertFalse(g("GTA 6 Just Got a MASSIVE Last Minute Info Dump..."))
+        self.assertFalse(g("GTA San Andreas Live Stream | GTA 6 soon"))
+        self.assertFalse(g("GTA 5 Funny Moments"))
+        self.assertFalse(g("LIVE: Playing Fortnite + Talking about GTA 6"))
+
+
 if __name__ == "__main__":
     unittest.main()

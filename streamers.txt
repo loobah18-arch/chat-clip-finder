@@ -1,0 +1,4 @@
+# Creators to always check (one per line). Their new GTA 6 streams/videos get picked first.
+# YouTube: the @handle.   Twitch: twitch:login
+# @SomeYouTuber
+# twitch:somestreamer

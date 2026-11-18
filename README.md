@@ -31,6 +31,20 @@ secret `YOUTUBE_COOKIES`. Locally, just put it next to the script as `youtube_co
 Optional: `YOUTUBE_PROXY` secret if the runner is still blocked. Cookies expire, so re-export when
 downloads start failing.
 
+### 🤖 Hands-free: auto-clip the top GTA 6 streams
+`auto_clips.py` searches YouTube for today's most-watched GTA 6 **gameplay** streams and videos
+(skips news, leaks, countdowns, GTA 5 / RP and Shorts), plus Twitch's top GTA VI broadcasts when
+`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` secrets exist (free app at dev.twitch.tv). Creators you
+list in `streamers.txt` are always checked first. It remembers what it clipped in `state/processed.json`.
+
+```
+python3 auto_clips.py --list          # show what it would pick
+python3 auto_clips.py --count 2 --top 3
+```
+The **Auto-Clip Top GTA 6 Streams** workflow runs this every 4 hours. Scheduled runs only upload if you
+set the repo variable `AUTO_UPLOAD` to `true` (privacy from `AUTO_PRIVACY`, default private).
+⚠️ Re-uploading other creators' streams can get copyright claims; credit is added, but permission is safest.
+
 ### Cloud runner
 Actions -> **Clip Stream to Shorts** -> Run workflow -> paste the link. Leave `upload_to_youtube` off to
 check the clips first (download them from the run's artifacts); demo runs never upload.

@@ -65,6 +65,15 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
             "--extractor-args", f"youtube:visitor_data={visitor_data}",
         ]
 
+    # Check for bgutil POT provider on localhost:4416
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:4416/ping", timeout=0.5) as r:
+            if r.status == 200:
+                cmd += ["--extractor-args", "youtubepot-provider:url=http://127.0.0.1:4416"]
+    except Exception:
+        pass
+
     if client:
         cmd += ["--extractor-args", f"youtube:player_client={client}"]
 
@@ -164,11 +173,11 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
 
     # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
     tiers = [
-        ("mweb", True, True, "Tier 1: mweb + PO Token/cookies"),
-        ("web", True, True, "Tier 1: web + PO Token/cookies"),
-        ("visionos", False, False, "Tier 2: visionos (no cookies)"),
-        ("ios", False, False, "Tier 2: ios (no cookies)"),
+        ("web,mweb", True, True, "Tier 1: web,mweb + bgutil/cookies"),
+        ("ios", False, False, "Tier 2: ios HLS (no cookies)"),
+        ("visionos", False, False, "Tier 2: visionos HLS (no cookies)"),
         ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
+        ("android", False, False, "Tier 2: android (no cookies)"),
     ]
 
     last_err = None
@@ -183,7 +192,7 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/b",
+                "-f", "bv*[height<=1080][fps<=60]+ba/best[height<=1080]/18/b",
                 "--download-sections", f"*{start:.2f}-{end:.2f}",
                 "--force-keyframes-at-cuts",
                 "--merge-output-format", "mp4",
@@ -214,18 +223,18 @@ def download_audio(url, out_path, cookies=None, proxy=None):
 
     # For Twitch or non-YouTube
     if kind_of(url) != "youtube":
-        cmd = _ytdlp_base(cookies, proxy) + ["-f", "ba/b", "-x", "--audio-format", "m4a",
+        cmd = _ytdlp_base(cookies, proxy) + ["-f", "ba/b/bestaudio/18/b", "-x", "--audio-format", "m4a",
                                              "-o", tmpl, url]
         _run(cmd, "audio download")
         return target_m4a
 
     # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
     tiers = [
-        ("mweb", True, True, "Tier 1: mweb + PO Token/cookies"),
-        ("web", True, True, "Tier 1: web + PO Token/cookies"),
-        ("visionos", False, False, "Tier 2: visionos (no cookies)"),
-        ("ios", False, False, "Tier 2: ios (no cookies)"),
+        ("web,mweb", True, True, "Tier 1: web,mweb + bgutil/cookies"),
+        ("ios", False, False, "Tier 2: ios HLS (no cookies)"),
+        ("visionos", False, False, "Tier 2: visionos HLS (no cookies)"),
         ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
+        ("android", False, False, "Tier 2: android (no cookies)"),
     ]
 
     last_err = None
@@ -240,7 +249,7 @@ def download_audio(url, out_path, cookies=None, proxy=None):
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "-f", "ba/b",
+                "-f", "ba/b/bestaudio/best[height<=720]/18/b",
                 "-x", "--audio-format", "m4a",
                 "-o", tmpl,
                 url

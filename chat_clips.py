@@ -74,6 +74,7 @@ def parse_args(argv=None):
     p.add_argument("--top", type=int, default=5)
     p.add_argument("--before", type=int, default=20)
     p.add_argument("--after", type=int, default=10)
+    p.add_argument("--chat-delay", type=float, default=0.0, help="Stream latency compensation in seconds (default 0.0)")
     p.add_argument("--gap", type=int, default=90)
     p.add_argument("--bucket", type=int, default=10)
     p.add_argument("--skip-start", type=int, default=120)
@@ -231,14 +232,17 @@ def main(argv=None):
     print("Top Moments:")
     moments = []
     for i, p in enumerate(peaks):
-        start = max(0, p["t"] - a.before)
-        end = p["t"] + a.after
+        nominal_t = max(0.0, p["t"] - a.chat_delay)
+        start = max(0, int(nominal_t - a.before) if float(nominal_t).is_integer() else round(nominal_t - a.before, 2))
+        end = int(nominal_t + a.after) if float(nominal_t).is_integer() else round(nominal_t + a.after, 2)
         kind, phrase = chatmod.top_reaction(messages, p["t"] - 5, p["t"] + a.bucket + 10, a.game) if messages else (None, "")
         meta = titles.make(i + 1, kind, phrase, streamer, a.game, a.hook)
         clip_file = f"clip_{i + 1:02d}.mp4"
-        print(f"#{i + 1}  {hms(p['t'])}  {p['msgs']} msgs in {a.bucket}s  ({p['score']}x normal)  "
+        spike_info = f"#{i + 1}  {hms(nominal_t)}" + (f" (chat spike {hms(p['t'])})" if a.chat_delay > 0 else "")
+        print(f"{spike_info}  {p['msgs']} msgs in {a.bucket}s  ({p['score']}x normal)  "
               f"-> clip {hms(start)} to {hms(end)}" + (f"  [{kind}]" if kind else ""))
-        moments.append({"rank": i + 1, "t": p["t"], "timestamp": hms(p["t"]), "msgs": p["msgs"],
+        moments.append({"rank": i + 1, "t": p["t"], "nominalEvent": nominal_t, "chatDelay": a.chat_delay,
+                        "timestamp": hms(nominal_t), "chatTimestamp": hms(p["t"]), "msgs": p["msgs"],
                         "score": p["score"], "start": start, "end": end, "clipStart": hms(start),
                         "clipEnd": hms(end), "duration": end - start, "clipFile": clip_file,
                         "reaction": kind, "chatPhrase": phrase, **meta})
@@ -255,7 +259,7 @@ def main(argv=None):
         sys.exit(0)
 
     # 3. Cut + render
-    from ccf import captions, render
+    from ccf import audio, captions, render
     posts = []
     for m in moments:
         out_path = out_dir / m["clipFile"]
@@ -275,15 +279,33 @@ def main(argv=None):
                 piece.unlink(missing_ok=True)
                 sys.exit(3)
 
+        # 1. Audio peak alignment around nominal climax
+        climax_offset = max(0.0, float(m["nominalEvent"]) - float(m["start"]))
+        peak_sec, peak_db = audio.find_audio_peak(piece, target_offset=climax_offset, window_radius=4.5)
+        print(f"   🔊 Audio peak aligned at {peak_sec:.1f}s ({peak_db:.1f} dB RMS)", flush=True)
+
+        # 2. Whisper transcription
         words = captions.transcribe(piece, a.whisper_model, a.lang) if a.captions == "on" else []
-        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"], require_cam=a.require_cam)
+
+        # 3. Sentence & speech boundary snapping
+        snapped_dur = captions.snap_speech_boundaries(words, m["duration"]) if words else m["duration"]
+        if snapped_dur < m["duration"]:
+            print(f"   ✂️ Snapped to natural speech boundary: {snapped_dur:.1f}s (trimmed {m['duration'] - snapped_dur:.1f}s)", flush=True)
+
+        # 4. Highlight accuracy & coherence score
+        coherence = chatmod.score_moment(words, peak_db, snapped_dur)
+        print(f"   🎯 Highlight accuracy & coherence score: {coherence}/100", flush=True)
+
+        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"],
+                          require_cam=a.require_cam, duration=snapped_dur)
         piece.unlink(missing_ok=True)
         if not r or not r.get("layout"):
             print(f"   ! skipping candidate: render failed or no webcam detected", flush=True)
             sys.exit(3)
         print(f"   ✅ {out_path}  ({r['layout']} layout, {len(words)} caption words)")
         posts.append({"file": str(out_path), "title": m["title"], "description": m["description"],
-                      "tags": m["tags"], "layout": r["layout"]})
+                      "tags": m["tags"], "layout": r["layout"], "coherence_score": coherence,
+                      "audio_peak_db": round(peak_db, 1), "snapped_duration": snapped_dur})
 
     with open(out_dir / "posts.json", "w", encoding="utf-8") as f:
         json.dump(posts, f, indent=2, ensure_ascii=False)

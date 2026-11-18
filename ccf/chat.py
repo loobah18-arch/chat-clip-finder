@@ -30,6 +30,17 @@ GTA6 = {"wasted", "busted", "5 star", "five star", "5 stars", "wanted", "cops", 
 
 GAME_LEXICONS = {"gta6": GTA6, "gta": GTA6, "none": set()}
 
+# ---------------------------------------------------------------- donation / bot filters
+# Ignore off-screen sub trains, bit cheers, donation alerts, and automated bot spam.
+DONATION_NOISE_RE = re.compile(
+    r"\b(gifted|subscriber|subscribed|subs?|resub(bed)?|bits|donation|donated|cheer\d*|tts|prime\s+sub|tier\s*[123]|raiding\s+with|welcome\s+raiders)\b",
+    re.I,
+)
+BOT_AUTHORS = {
+    "streamelements", "nightbot", "moobot", "streamlabs", "fossabot", "wizebot", "soundalerts", "botrix"
+}
+DEFAULT_CHAT_DELAY = 4.0
+
 _word_cache = {}
 
 
@@ -47,7 +58,12 @@ def classify(body, game="none"):
     """Return (weight, kind) for one chat message. weight 0 means 'not a reaction'."""
     if not body:
         return 0.0, None
-    text = body.lower()
+    stripped_body = body.strip()
+    if stripped_body.startswith("!"):
+        return 0.0, None
+    if DONATION_NOISE_RE.search(stripped_body):
+        return 0.0, None
+    text = stripped_body.lower()
     scores = Counter()
     for kind, words, emoji in (("laugh", LAUGH, LAUGH_EMOJI), ("hype", HYPE, HYPE_EMOJI), ("shock", SHOCK, SHOCK_EMOJI)):
         n = len(_token_re(words).findall(text)) + sum(text.count(e) for e in emoji)
@@ -113,6 +129,8 @@ def _load_youtube_live_chat(path):
                     continue
                 body = _yt_runs((r.get("message") or {}).get("runs"))
                 author = (r.get("authorName") or {}).get("simpleText", "")
+                if author and author.lower().strip() in BOT_AUTHORS:
+                    continue
                 msgs.append({"t": t, "text": body, "author": author})
                 length = max(length, t)
     return msgs, length
@@ -143,6 +161,8 @@ def load_chat(path):
             if isinstance(t, (int, float)) and t >= 0:
                 body = (c.get("message") or {}).get("body", "") if "message" in c else c.get("text", "")
                 author = (c.get("commenter") or {}).get("display_name", "") if "commenter" in c else c.get("author", "")
+                if author and author.lower().strip() in BOT_AUTHORS:
+                    continue
                 msgs.append({"t": float(t), "text": body or "", "author": author or ""})
     msgs.sort(key=lambda m: m["t"])
     length = 0.0
@@ -180,3 +200,28 @@ def top_reaction(messages, start, end, game="none"):
     kind = kinds.most_common(1)[0][0] if kinds else None
     phrase = phrases.most_common(1)[0][0] if phrases else ""
     return kind, phrase
+
+
+def score_moment(words, peak_db, duration=30.0):
+    """Score highlight coherence and energy (0-100)."""
+    score = 50.0
+    if peak_db > -18.0:
+        score += 25.0
+    elif peak_db > -28.0:
+        score += 15.0
+    elif peak_db < -42.0:
+        score -= 15.0
+
+    if words:
+        w_count = len(words)
+        if w_count >= 5:
+            score += 15.0
+        text = " ".join(str(w.get("w", "")) for w in words).lower()
+        high_energy_keywords = {"no", "omg", "what", "bro", "dead", "die", "cops", "star", "holy", "haha", "gator", "shit", "fuck", "run", "look"}
+        if any(k in text for k in high_energy_keywords):
+            score += 10.0
+    else:
+        score -= 20.0
+
+    return round(max(10.0, min(100.0, score)), 1)
+

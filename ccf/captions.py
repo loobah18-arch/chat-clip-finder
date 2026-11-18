@@ -74,6 +74,47 @@ def group_words(words, max_words=3, max_chars=16, max_gap=0.45):
     return groups
 
 
+def snap_speech_boundaries(words, raw_duration, min_duration=15.0, tail_window=7.0):
+    """Find a natural sentence ending or speech pause within the tail of the clip.
+    Avoids cutting the streamer off mid-sentence or mid-word.
+    Returns snapped_duration (float).
+    """
+    if not words or raw_duration <= min_duration:
+        return float(raw_duration)
+
+    last_word = words[-1]
+    last_speech_end = float(last_word.get("e", raw_duration))
+    tail_start = max(min_duration, raw_duration - tail_window)
+    tail_words = [w for w in words if float(w.get("s", 0)) >= tail_start]
+
+    best_snap = None
+    # 1. Punctuation mark indicating end of sentence/reaction (. ! ?)
+    for w in tail_words:
+        txt = str(w.get("w", "")).strip()
+        end_t = float(w.get("e", 0))
+        if txt.endswith((".", "!", "?")):
+            best_snap = end_t + 0.35
+
+    # 2. Significant pause between words (pause >= 0.4s)
+    if best_snap is None and len(tail_words) >= 2:
+        for i in range(len(tail_words) - 1):
+            curr_e = float(tail_words[i].get("e", 0))
+            next_s = float(tail_words[i + 1].get("s", 0))
+            if next_s - curr_e >= 0.4:
+                best_snap = curr_e + 0.25
+
+    # 3. Speech completely ceased before clip end (avoid trailing dead silence)
+    if best_snap is None and last_speech_end < raw_duration - 0.6:
+        best_snap = last_speech_end + 0.4
+
+    if best_snap is not None:
+        snapped = max(min_duration, min(raw_duration, best_snap))
+        return round(float(snapped), 2)
+
+    return float(raw_duration)
+
+
+
 def _ts(t):
     t = max(0.0, t)
     cs = int(round(t * 100))

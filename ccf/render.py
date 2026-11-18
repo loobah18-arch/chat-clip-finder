@@ -77,9 +77,11 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
 
 
 def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", credit="",
-           progress_bar=True, fps=30, require_cam=True):
+           progress_bar=True, fps=30, require_cam=True, duration=None):
     piece, out_path = Path(piece), Path(out_path)
     src_w, src_h, dur = probe(piece)
+    if duration is not None:
+        dur = min(dur, float(duration))
     layout, cam = choose_layout(layout, cam_pos, piece, src_w, src_h, require_cam=require_cam)
     if not layout:
         return {"layout": None, "cam": None, "duration": dur}

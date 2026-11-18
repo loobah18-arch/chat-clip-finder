@@ -87,7 +87,7 @@ def main(argv=None):
         sub = out_root / f"{done + 1:02d}_{c['id'].replace(':', '_')}"
         print(f"\n🎬 [Short {done + 1}/{a.count} - Candidate {n}/{len(candidates)}] {c['channel']} | {c['title']}\n   {c['url']}", flush=True)
         cmd = [sys.executable, "chat_clips.py", "--url", c["url"], "--game", "gta6" if a.game == "gta6" else "none", "--top", str(a.top),
-               "--out", str(sub), "--credit", c["channel"] or "", "--layout", "stack", "--require-cam"]
+               "--out", str(sub), "--credit", c["channel"] or "", "--layout", "stack", "--require-cam", "--chat-delay", "4.0"]
         if cookies:
             cmd += ["--cookies", str(cookies)]
         if proxy:

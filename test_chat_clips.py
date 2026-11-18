@@ -224,6 +224,72 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertEqual(cap_y, 700)
         self.assertEqual(credit_v, 190)
 
+    def test_donation_and_sub_filtering(self):
+        from ccf.chat import classify
+        # Sub bombs, bits, and donation alerts return 0 weight
+        self.assertEqual(classify("thanks for the 5 gifted subs", "gta6")[0], 0.0)
+        self.assertEqual(classify("cheer500 lets go", "gta6")[0], 0.0)
+        self.assertEqual(classify("subscribed with Prime", "gta6")[0], 0.0)
+        self.assertEqual(classify("!uptime", "gta6")[0], 0.0)
+        # Genuine reactions are still high weight
+        self.assertGreater(classify("NO WAY LMAOOO 💀💀", "gta6")[0], 1.0)
+
+    def test_chat_delay_latency_compensation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            test_chat = tmp_path / "test_chat.json"
+            comments = [{"content_offset_seconds": float(t)} for t in range(0, 600, 10)]
+            for _ in range(50):
+                comments.append({"content_offset_seconds": 300.0 + (_ * 0.1)})
+            comments.sort(key=lambda c: c["content_offset_seconds"])
+            with open(test_chat, "w", encoding="utf-8") as f:
+                json.dump({"comments": comments}, f)
+
+            out_dir = tmp_path / "out"
+            res = subprocess.run(
+                ["python3", str(self.repo_dir / "chat_clips.py"), str(test_chat), "--out", str(out_dir),
+                 "--chat-delay", "4.0", "--dry-run"],
+                capture_output=True,
+                text=True
+            )
+            self.assertEqual(res.returncode, 0)
+            with open(out_dir / "moments.json") as f:
+                data = json.load(f)
+            top = data[0]
+            self.assertEqual(top["t"], 300)
+            self.assertEqual(top["nominalEvent"], 296)  # 300 - 4
+            self.assertEqual(top["start"], 276)         # 296 - 20
+            self.assertEqual(top["end"], 306)           # 296 + 10
+
+    def test_speech_boundary_snapping(self):
+        from ccf.captions import snap_speech_boundaries
+        words = [
+            {"w": "LOOK", "s": 22.0, "e": 22.4},
+            {"w": "AT", "s": 22.5, "e": 22.7},
+            {"w": "THAT!", "s": 22.8, "e": 23.2},
+            {"w": "HE", "s": 24.0, "e": 24.3},
+            {"w": "DIED!", "s": 24.4, "e": 24.8},
+        ]
+        # Punctuation at 24.8s + 0.35s breathing room = 25.15s (snapping off the remaining 4.85s dead air)
+        snapped = snap_speech_boundaries(words, raw_duration=30.0, min_duration=15.0)
+        self.assertAlmostEqual(snapped, 25.15, places=2)
+
+        # Min duration guard
+        snapped_min = snap_speech_boundaries(words, raw_duration=14.0, min_duration=15.0)
+        self.assertEqual(snapped_min, 14.0)
+
+    def test_audio_peak_and_moment_scoring(self):
+        from ccf.chat import score_moment
+
+        # High energy moment with words and loud audio
+        words = [{"w": "BRO"}, {"w": "WHAT"}, {"w": "THE"}, {"w": "HELL"}, {"w": "NO"}, {"w": "WAY"}]
+        high_score = score_moment(words, peak_db=-15.0)
+        self.assertGreaterEqual(high_score, 85.0)
+
+        # Quiet / flat moment with no words
+        low_score = score_moment([], peak_db=-50.0)
+        self.assertLessEqual(low_score, 30.0)
+
 
 if __name__ == "__main__":
     unittest.main()

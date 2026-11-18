@@ -1,115 +1,57 @@
 #!/usr/bin/env python3
 """
-chat-clips: find the best moments of a Twitch stream from its chat, and cut them as vertical clips.
+chat-clips: let chat (or the audio) find the best moments of a stream, then turn them into
+ready-to-post vertical Shorts / Reels / TikToks: word-by-word captions, hook title, facecam stack.
 
 Usage:
-    python3 chat_clips.py chat.json [options]
+    python3 chat_clips.py <chat.json | Twitch URL | YouTube URL> [options]
 
-Options:
-    --vod <ID/URL>      Twitch VOD ID or URL (downloads only the clips needed)
-    --video <file.mp4>  Cut from a local video file
-    --emotes            Filter by reaction emotes/keywords (LMAO, KEKW, 💀, WTF, NO WAY, etc.)
-    --min-score <num>   Minimum spike multiplier threshold to clip (e.g. 2.5 or 4.0)
-    --layout <type>     Vertical format: 'stack' (cam top, game bottom), 'blur' (ambient 16:9), 'crop' (center zoom)
-    --cam <pos>         Webcam location for 'stack': 'auto', 'bottom-left', 'top-left', 'bottom-right', 'top-right'
-    --top <number>      Number of clips to make (default: 5)
-    --before <seconds>  Seconds before spike to start clip (default: 20)
-    --after <seconds>   Seconds after spike to end clip (default: 10)
-    --gap <seconds>     Minimum seconds between two clips (default: 90)
-    --bucket <seconds>  Window size for counting messages (default: 10)
-    --out <dir>         Output directory (default: clips)
-    --tdl <path>        Path to TwitchDownloaderCLI executable
-    --dry-run           Only find moments and write moments.json, skip video cutting
-    --help, -h          Show help message
+Sources:
+    chat.json                 TwitchDownloader chat file, or a yt-dlp *.live_chat.json (YouTube)
+    --url <link>              Twitch VOD or YouTube video / past live stream: chat and clips are
+                              downloaded automatically (YouTube uses your cookies file)
+    --vod <ID/URL>            (old name for --url, Twitch)
+    --video <file.mp4>        Cut from a local video you already have
+    --no-chat                 Find moments from loudness spikes instead (gameplay videos, trailers)
+    --cookies <file>          YouTube cookies (default: youtube_cookies.txt / cookies.txt here)
+    --proxy <url>             Proxy for YouTube (or $YOUTUBE_PROXY)
+
+Finding moments:
+    --game <gta6|none>        Game-tuned reactions & titles (default: gta6)
+    --emotes                  Count only reaction messages (LMAO, KEKW, 💀, WTF, WASTED...), weighted
+    --min-score <n>           Minimum spike multiplier (default 1.0)
+    --top <n>                 Number of clips (default 5)
+    --before / --after <s>    Seconds before / after the spike (default 20 / 10)
+    --gap <s>                 Minimum seconds between clips (default 90)
+    --bucket <s>              Counting window (default 10)
+    --skip-start / --skip-end <s>  Ignore "Starting soon" / ending screen (default 120 / 60)
+
+Making the Short:
+    --layout <auto|stack|gameplay|blur|crop>   (default auto: stack if a webcam is found, else gameplay)
+    --cam <auto|top-left|top-right|bottom-left|bottom-right>   Webcam position (default auto-detect)
+    --captions <on|off>       Word-by-word captions with Whisper (default on)
+    --whisper-model <name>    tiny / base / small / medium (default small)
+    --lang <code>             Spoken language, e.g. en, hi (default: auto-detect)
+    --hook <text>             Fixed hook title for every clip (default: picked per clip from chat)
+    --credit <name>           Streamer name shown on screen and in the description
+    --out <dir>               Output folder (default clips)
+    --tdl <path>              TwitchDownloaderCLI path
+    --dry-run                 Only find moments and write moments.json
 """
 
-import sys
-import os
-import re
+import argparse
 import json
 import math
-import shutil
-import subprocess
+import sys
 from pathlib import Path
 
-REACTION_PATTERN = re.compile(
-    r'\b(lmao+|kekw|omegalul|lol+|rofl|dead|💀|😭|icant|wtf|no\s*way|holy|omg|yooo+|clutch|fail|cooked|doxxed|w|l)\b',
-    re.IGNORECASE
-)
-
-
-def parse_args():
-    args = sys.argv[1:]
-    if not args or "-h" in args or "--help" in args:
-        print(__doc__)
-        sys.exit(0 if ("-h" in args or "--help" in args) else 1)
-
-    options = {
-        "chat_file": None,
-        "bucket": 10,
-        "top": 5,
-        "before": 20,
-        "after": 10,
-        "gap": 90,
-        "out": "clips",
-        "vod": None,
-        "video": None,
-        "tdl": None,
-        "layout": "stack",
-        "cam": "auto",
-        "emotes": False,
-        "min_score": 1.0,
-        "dry_run": False,
-    }
-
-    skip_next = False
-    for i, a in enumerate(args):
-        if skip_next:
-            skip_next = False
-            continue
-        if a == "--dry-run":
-            options["dry_run"] = True
-        elif a in ("--emotes", "--filter-emotes"):
-            options["emotes"] = True
-        elif a.startswith("--"):
-            key = a[2:].replace("-", "_")
-            if i + 1 < len(args):
-                val = args[i + 1]
-                if key in ("bucket", "top", "before", "after", "gap"):
-                    options[key] = int(val)
-                elif key == "min_score":
-                    options[key] = float(val)
-                else:
-                    options[key] = val
-                skip_next = True
-        elif options["chat_file"] is None:
-            options["chat_file"] = a
-
-    if not options["chat_file"]:
-        print("Error: Please provide a chat JSON file.")
-        sys.exit(1)
-
-    return options
-
-
-def resolve_tdl(custom_path=None):
-    if custom_path:
-        return custom_path
-    if os.path.exists("./TwitchDownloaderCLI"):
-        return "./TwitchDownloaderCLI"
-    if os.path.exists("./TwitchDownloaderCLI.exe"):
-        return "./TwitchDownloaderCLI.exe"
-    if sys.platform == "win32":
-        return "TwitchDownloaderCLI.exe"
-    return "TwitchDownloaderCLI"
+from ccf import chat as chatmod
+from ccf import sources, titles
+from ccf.timefmt import hms
 
 
 def format_hms(seconds):
-    seconds = max(0, int(round(seconds)))
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    return f"{h}:{m:02d}:{s:02d}"
+    return hms(seconds)
 
 
 def calculate_median(arr):
@@ -119,283 +61,218 @@ def calculate_median(arr):
     return s[len(s) // 2]
 
 
-def detect_webcam_crop(video_file, default_pos="bottom-left"):
-    """
-    Detects streamer webcam coordinates (x, y, w, h) on 16:9 1920x1080 source.
-    Defaults to bottom-left quadrant if auto-detection is unavailable.
-    """
-    PRESETS = {
-        "bottom-left": (0, 240, 460, 360),
-        "top-left": (0, 0, 460, 360),
-        "bottom-right": (1460, 240, 460, 360),
-        "top-right": (1460, 0, 460, 360),
-    }
-
-    if default_pos in PRESETS and default_pos != "auto":
-        return PRESETS[default_pos]
-
-    # Attempt OpenCV face detection if available
-    try:
-        import cv2
-        cascade_candidates = [
-            "/data/data/com.termux/files/usr/share/opencv5/haarcascades/haarcascade_frontalface_default.xml",
-            "/data/data/com.termux/files/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
-            "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
-        ]
-        casc_path = next((p for p in cascade_candidates if os.path.exists(p)), None)
-        if casc_path:
-            cap = cv2.VideoCapture(str(video_file))
-            ret, frame = cap.read()
-            cap.release()
-            if ret and frame is not None:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                clf = cv2.CascadeClassifier(casc_path)
-                faces = clf.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
-                if len(faces) > 0:
-                    fx, fy, fw, fh = faces[0]
-                    # Center a 460x360 box around face center
-                    cx = max(0, min(1920 - 460, fx + fw // 2 - 230))
-                    cy = max(0, min(1080 - 360, fy + fh // 2 - 180))
-                    return (cx, cy, 460, 360)
-    except Exception:
-        pass
-
-    return PRESETS.get(default_pos, PRESETS["bottom-left"])
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("source", nargs="?")
+    p.add_argument("-h", "--help", action="store_true")
+    p.add_argument("--url"); p.add_argument("--vod"); p.add_argument("--video")
+    p.add_argument("--no-chat", action="store_true")
+    p.add_argument("--cookies"); p.add_argument("--proxy")
+    p.add_argument("--game", default="gta6")
+    p.add_argument("--emotes", "--filter-emotes", action="store_true")
+    p.add_argument("--min-score", type=float, default=1.0)
+    p.add_argument("--top", type=int, default=5)
+    p.add_argument("--before", type=int, default=20)
+    p.add_argument("--after", type=int, default=10)
+    p.add_argument("--gap", type=int, default=90)
+    p.add_argument("--bucket", type=int, default=10)
+    p.add_argument("--skip-start", type=int, default=120)
+    p.add_argument("--skip-end", type=int, default=60)
+    p.add_argument("--layout", default="auto", choices=["auto", "stack", "gameplay", "blur", "crop"])
+    p.add_argument("--cam", default="auto", choices=["auto", "top-left", "top-right", "bottom-left", "bottom-right"])
+    p.add_argument("--captions", default="on", choices=["on", "off"])
+    p.add_argument("--whisper-model", default="small")
+    p.add_argument("--lang")
+    p.add_argument("--hook", default="")
+    p.add_argument("--credit", default="")
+    p.add_argument("--out", default="clips")
+    p.add_argument("--tdl")
+    p.add_argument("--dry-run", action="store_true")
+    a, unknown = p.parse_known_args(argv)
+    if a.help or (not a.source and not a.url and not a.vod and not (a.no_chat and a.video)):
+        print(__doc__)
+        sys.exit(0 if a.help else 1)
+    if unknown:
+        print(f"Error: unknown option(s): {' '.join(unknown)}  (see --help)", file=sys.stderr)
+        sys.exit(2)
+    a.url = a.url or a.vod
+    if a.source and sources.kind_of(a.source) in ("youtube", "twitch") and not Path(a.source).exists():
+        a.url, a.source = a.url or a.source, None
+    return a
 
 
-def get_filter_args(layout="stack", cam_pos="auto", video_sample=None, fps=30):
-    if layout == "crop":
-        return ["-vf", f"crop=w=floor(ih*9/16/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920,fps={fps},setsar=1"]
-    elif layout == "stack":
-        cx, cy, cw, ch = detect_webcam_crop(video_sample, default_pos=cam_pos) if video_sample else (0, 240, 460, 360)
-        # YouTube Shorts reference layout:
-        # Full-bleed 1080x1920 stacked (streamer webcam 1080x700 top, gameplay 1080x1220 bottom, 4px divider seam)
-        fc = (
-            f"[0:v]crop=w={cw}:h={ch}:x={cx}:y={cy},scale=1080:700,fps={fps}[cam];"
-            f"[0:v]crop=w=floor(ih*1080/1220/2)*2:h=ih:x=(iw-ow)/2:y=0,scale=1080:1220,fps={fps}[game];"
-            f"[cam][game]vstack=inputs=2[v_stacked];"
-            f"[v_stacked]drawbox=x=0:y=698:w=1080:h=4:color=black@0.8:t=fill[v_out]"
-        )
-        return ["-filter_complex", fc, "-map", "[v_out]", "-map", "0:a?"]
-    else:
-        # Default 'blur': Ambient blurred background with full 16:9 widescreen in center
-        fc = (
-            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,eq=brightness=-0.15,fps={fps}[bg];"
-            f"[0:v]scale=1080:-1,fps={fps}[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v_out]"
-        )
-        return ["-filter_complex", fc, "-map", "[v_out]", "-map", "0:a?"]
+def resolve_tdl(custom_path=None):
+    import os
+    if custom_path:
+        return custom_path
+    for p in ("./TwitchDownloaderCLI", "./TwitchDownloaderCLI.exe"):
+        if os.path.exists(p):
+            return p
+    return "TwitchDownloaderCLI.exe" if sys.platform == "win32" else "TwitchDownloaderCLI"
 
 
-def run_cmd(cmd_list):
-    res = subprocess.run(cmd_list)
-    if res.returncode != 0:
-        raise RuntimeError(f"Command failed with exit code {res.returncode}: {' '.join(cmd_list)}")
-
-
-def main():
-    opts = parse_args()
-    chat_path = Path(opts["chat_file"])
-    if not chat_path.exists():
-        print(f"Error: Chat file not found: {chat_path}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        with open(chat_path, "r", encoding="utf-8") as f:
-            chat_data = json.load(f)
-    except Exception as e:
-        print(f"Error reading JSON from {chat_path}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # 1. Parse comments
-    if isinstance(chat_data, list):
-        comments = chat_data
-    else:
-        comments = chat_data.get("comments", [])
-
-    times = []
-    filtered_count = 0
-    for c in comments:
-        if isinstance(c, (int, float)):
-            times.append(float(c))
-        elif isinstance(c, dict) and "content_offset_seconds" in c:
-            val = c["content_offset_seconds"]
-            body = c.get("message", {}).get("body", "")
-            if isinstance(val, (int, float)) and val >= 0:
-                if opts["emotes"]:
-                    if REACTION_PATTERN.search(body):
-                        times.append(float(val))
-                        filtered_count += 1
-                else:
-                    times.append(float(val))
-
-    if not times:
-        if opts["emotes"]:
-            print("Error: No messages matched reaction emotes/keywords. Try running without --emotes.", file=sys.stderr)
+def bucket_counts(a, messages, length):
+    nb = math.ceil(length / a.bucket) + 1
+    counts = [0] * nb
+    use_weights = a.emotes
+    for m in messages:
+        i = int(m["t"] // a.bucket)
+        if i >= nb:
+            continue
+        if use_weights:
+            w, _ = chatmod.classify(m["text"], a.game)
+            counts[i] += w
         else:
-            print("Error: No chat messages found. Is this a TwitchDownloader chat .json file?", file=sys.stderr)
-        sys.exit(1)
+            counts[i] += 1
+    if use_weights:
+        counts = [round(c, 2) for c in counts]
+    return counts
 
-    # 2. Count messages per bucket
-    video_len = 0
-    if isinstance(chat_data, dict) and "video" in chat_data and isinstance(chat_data["video"], dict):
-        video_len = chat_data["video"].get("length", 0)
-    total_length = max(max(times), video_len)
 
-    bucket_size = opts["bucket"]
-    num_buckets = math.ceil(total_length / bucket_size) + 1
-    counts = [0] * num_buckets
-    for t in times:
-        idx = int(t // bucket_size)
-        if idx < num_buckets:
-            counts[idx] += 1
-
-    # 3. Score calculation (Local Median Baseline)
-    around = max(1, round(300 / bucket_size))
+def find_peaks(a, counts):
+    nb = len(counts)
+    around = max(1, round(300 / a.bucket))
     scores = []
-    for i in range(num_buckets):
-        left = max(0, i - around)
-        right = min(num_buckets, i + around + 1)
-        base = calculate_median(counts[left:right])
-        score = counts[i] / (base + 1.0)
-        scores.append(score)
-
-    # 4. Find top peaks with gap separation and minimum score filter
-    order = sorted(range(num_buckets), key=lambda idx: scores[idx], reverse=True)
-    top_n = opts["top"]
-    min_gap = opts["gap"]
-    min_score = opts["min_score"]
+    for i in range(nb):
+        base = calculate_median(counts[max(0, i - around): min(nb, i + around + 1)])
+        scores.append(counts[i] / (base + 1.0))
+    first_ok = math.ceil(a.skip_start / a.bucket) if nb * a.bucket > (a.skip_start + a.skip_end) * 3 else 0
+    last_ok = nb - 1 - (math.ceil(a.skip_end / a.bucket) if first_ok else 0)
     peaks = []
-
-    for idx in order:
-        if len(peaks) >= top_n:
+    for idx in sorted(range(nb), key=lambda i: scores[i], reverse=True):
+        if len(peaks) >= a.top:
             break
-        if counts[idx] < 5 or scores[idx] < min_score:
+        if counts[idx] < 5 or scores[idx] < a.min_score or not (first_ok <= idx <= last_ok):
             continue
-        t = idx * bucket_size
-        if any(abs(p["t"] - t) < min_gap for p in peaks):
+        t = idx * a.bucket
+        if any(abs(p["t"] - t) < a.gap for p in peaks):
             continue
-        peaks.append({
-            "t": t,
-            "msgs": counts[idx],
-            "score": round(scores[idx], 1),
-        })
-
+        msgs = counts[idx]
+        peaks.append({"t": t, "msgs": int(msgs) if float(msgs).is_integer() else msgs, "score": round(scores[idx], 1)})
     peaks.sort(key=lambda p: p["t"])
+    return peaks
 
-    # 5. ASCII visualization & summary
+
+def ascii_graph(counts, total_length):
     bars = " ▁▂▃▄▅▆▇█"
-    cols_count = 60
-    per = max(1, math.ceil(num_buckets / cols_count))
-    cols = []
-    for k in range(math.ceil(num_buckets / per)):
-        window = counts[k * per : (k + 1) * per]
-        cols.append(max(window) if window else 0)
+    per = max(1, math.ceil(len(counts) / 60))
+    cols = [max(counts[k * per:(k + 1) * per] or [0]) for k in range(math.ceil(len(counts) / per))]
+    top = max(cols) if cols and max(cols) > 0 else 1
+    g = "".join(bars[min(8, round(c / top * 8))] for c in cols)
+    end = hms(total_length)
+    return f"{g}\n0:00:00{' ' * max(1, len(cols) - len(end) - 7)}{end}"
 
-    top_val = max(cols) if cols and max(cols) > 0 else 1
-    graph_str = "".join(bars[min(len(bars) - 1, round((c / top_val) * (len(bars) - 1)))] for c in cols)
 
-    mode_label = " (Reaction Emote Filter Active)" if opts["emotes"] else ""
-    print(f"\n💬 {len(times)} chat messages{mode_label}, ⏱ {format_hms(total_length)} of stream\n")
-    print(graph_str)
-    spacing = max(1, len(cols) - len(format_hms(total_length)) - 7)
-    print(f"0:00:00{' ' * spacing}{format_hms(total_length)}\n")
+def main(argv=None):
+    a = parse_args(argv)
+    out_dir = Path(a.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tdl = resolve_tdl(a.tdl)
+    info = {"title": "", "channel": "", "duration": 0.0}
 
+    # 1. Signal: chat (file or downloaded) or loudness
+    messages, length, chat_file = [], 0.0, None
+    if a.source:
+        chat_file = Path(a.source)
+        if not chat_file.exists():
+            print(f"Error: Chat file not found: {chat_file}", file=sys.stderr)
+            sys.exit(1)
+    elif a.url and not a.no_chat:
+        print(f"💬 Downloading chat replay for {a.url} ...", flush=True)
+        chat_file = sources.fetch_chat(a.url, out_dir, a.cookies, a.proxy, tdl)
+        if not chat_file:
+            print("   ! This video has no chat replay. Falling back to loudness spikes (--no-chat).", flush=True)
+            a.no_chat = True
+
+    if chat_file and not a.no_chat:
+        try:
+            messages, length = chatmod.load_chat(chat_file)
+        except Exception as e:
+            print(f"Error reading chat from {chat_file}: {e}", file=sys.stderr)
+            sys.exit(1)
+        if a.emotes:
+            messages_used = [m for m in messages if chatmod.classify(m["text"], a.game)[0] > 0]
+        else:
+            messages_used = messages
+        if not messages_used:
+            print("Error: No messages matched reaction emotes/keywords. Try without --emotes." if a.emotes
+                  else "Error: No chat messages found. Is this a TwitchDownloader / YouTube live-chat file?",
+                  file=sys.stderr)
+            sys.exit(1)
+        counts = bucket_counts(a, messages_used, length)
+        label = f"{len(messages_used)} chat messages" + (" (reaction filter active)" if a.emotes else "")
+    else:
+        from ccf import audio
+        src = a.video or a.url
+        if not src:
+            print("Error: --no-chat needs --video or --url", file=sys.stderr)
+            sys.exit(1)
+        print("🔊 Finding moments from loudness spikes ...", flush=True)
+        aud = sources.download_audio(src, out_dir / "audio", a.cookies, a.proxy)
+        counts = audio.loudness_buckets(aud, a.bucket)
+        length = len(counts) * a.bucket
+        label = "audio loudness (no chat)"
+
+    peaks = find_peaks(a, counts)
+    print(f"\n💬 {label}, ⏱ {hms(length)} of stream\n")
+    print(ascii_graph(counts, length) + "\n")
     if not peaks:
-        print(f"No moments reached the minimum multiplier threshold of {min_score}x. Try lowering --min-score.")
+        print(f"No moments reached the minimum multiplier threshold of {a.min_score}x. Try lowering --min-score.")
         sys.exit(0)
+
+    # 2. Name things
+    streamer = a.credit or (chatmod.streamer_name(chat_file) if chat_file else "")
+    if not streamer and a.url and not a.dry_run:
+        info = sources.video_info(a.url, a.cookies, a.proxy)
+        streamer = info.get("channel", "")
 
     print("Top Moments:")
-    out_dir = Path(opts["out"])
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    moments_data = []
-    before = opts["before"]
-    after = opts["after"]
+    moments = []
     for i, p in enumerate(peaks):
-        clip_start = max(0, p["t"] - before)
-        clip_end = p["t"] + after
-        duration = clip_end - clip_start
+        start = max(0, p["t"] - a.before)
+        end = p["t"] + a.after
+        kind, phrase = chatmod.top_reaction(messages, p["t"] - 5, p["t"] + a.bucket + 10, a.game) if messages else (None, "")
+        meta = titles.make(i + 1, kind, phrase, streamer, a.game, a.hook)
         clip_file = f"clip_{i + 1:02d}.mp4"
-        print(f"#{i + 1}  {format_hms(p['t'])}  {p['msgs']} msgs in {bucket_size}s  ({p['score']}x normal)  -> clip {format_hms(clip_start)} to {format_hms(clip_end)}")
-        moments_data.append({
-            "rank": i + 1,
-            "t": p["t"],
-            "timestamp": format_hms(p["t"]),
-            "msgs": p["msgs"],
-            "score": p["score"],
-            "start": clip_start,
-            "end": clip_end,
-            "clipStart": format_hms(clip_start),
-            "clipEnd": format_hms(clip_end),
-            "duration": duration,
-            "clipFile": clip_file,
-        })
+        print(f"#{i + 1}  {hms(p['t'])}  {p['msgs']} msgs in {a.bucket}s  ({p['score']}x normal)  "
+              f"-> clip {hms(start)} to {hms(end)}" + (f"  [{kind}]" if kind else ""))
+        moments.append({"rank": i + 1, "t": p["t"], "timestamp": hms(p["t"]), "msgs": p["msgs"],
+                        "score": p["score"], "start": start, "end": end, "clipStart": hms(start),
+                        "clipEnd": hms(end), "duration": end - start, "clipFile": clip_file,
+                        "reaction": kind, "chatPhrase": phrase, **meta})
 
-    moments_file = out_dir / "moments.json"
-    with open(moments_file, "w", encoding="utf-8") as f:
-        json.dump(moments_data, f, indent=2)
-    print(f"\n✅ Saved moment data to {moments_file}.")
+    with open(out_dir / "moments.json", "w", encoding="utf-8") as f:
+        json.dump(moments, f, indent=2, ensure_ascii=False)
+    print(f"\n✅ Saved moment data to {out_dir / 'moments.json'}.")
 
-    if opts["dry_run"]:
+    if a.dry_run:
         print("Dry run requested; skipping video cutting.")
         sys.exit(0)
-
-    if not opts["vod"] and not opts["video"]:
-        print("To cut video clips, provide --vod <ID/URL> or --video <local.mp4>")
+    if not a.url and not a.video:
+        print("To cut video clips, provide --url <Twitch/YouTube link> or --video <local.mp4>")
         sys.exit(0)
 
-    # 6. Cut vertical clips
-    tdl_bin = resolve_tdl(opts["tdl"])
-    layout = opts.get("layout", "stack")
-    cam_pos = opts.get("cam", "auto")
-
-    codec_args = [
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k"
-    ]
-
-    for item in moments_data:
-        out_path = out_dir / item["clipFile"]
-        print(f"\n✂️ Cutting #{item['rank']} -> {out_path} ({item['clipStart']} to {item['clipEnd']}, {item['duration']}s, layout: {layout})")
-
-        filter_args = get_filter_args(layout=layout, cam_pos=cam_pos, video_sample=opts["video"])
-
-        if opts["video"]:
-            run_cmd([
-                "ffmpeg", "-y", "-loglevel", "error",
-                "-ss", str(item["start"]),
-                "-t", str(item["duration"]),
-                "-i", opts["video"],
-                *filter_args,
-                *codec_args,
-                str(out_path)
-            ])
+    # 3. Cut + render
+    from ccf import captions, render
+    posts = []
+    for m in moments:
+        out_path = out_dir / m["clipFile"]
+        piece = out_dir / f"piece_{m['rank']}.mp4"
+        print(f"\n✂️  #{m['rank']} {m['clipStart']} -> {m['clipEnd']}  \"{m['hook']}\"", flush=True)
+        if a.video:
+            sources.download_section(a.video, m["start"], m["end"], piece)
         else:
-            piece_path = out_dir / f"piece_{item['rank']}.mp4"
-            print(f"  Downloading stream segment with {tdl_bin}...")
-            run_cmd([
-                tdl_bin, "videodownload",
-                "--id", opts["vod"],
-                "-b", item["clipStart"],
-                "-e", item["clipEnd"],
-                "-o", str(piece_path)
-            ])
-            print(f"  Rendering 9:16 vertical 1080x1920 ({layout}) with ffmpeg...")
-            filter_args_piece = get_filter_args(layout=layout, cam_pos=cam_pos, video_sample=str(piece_path))
-            run_cmd([
-                "ffmpeg", "-y", "-loglevel", "error",
-                "-i", str(piece_path),
-                *filter_args_piece,
-                *codec_args,
-                str(out_path)
-            ])
-            if piece_path.exists():
-                piece_path.unlink()
+            sources.download_section(a.url, m["start"], m["end"], piece, a.cookies, a.proxy, tdl)
+        words = captions.transcribe(piece, a.whisper_model, a.lang) if a.captions == "on" else []
+        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"])
+        piece.unlink(missing_ok=True)
+        print(f"   ✅ {out_path}  ({r['layout']} layout, {len(words)} caption words)")
+        posts.append({"file": str(out_path), "title": m["title"], "description": m["description"],
+                      "tags": m["tags"], "layout": r["layout"]})
 
-        print(f"  ✅ Saved: {out_path}")
-
-    print(f"\n🎉 Finished! Processed {len(moments_data)} clips in {out_dir}/")
+    with open(out_dir / "posts.json", "w", encoding="utf-8") as f:
+        json.dump(posts, f, indent=2, ensure_ascii=False)
+    print(f"\n🎉 Finished! {len(posts)} Shorts in {out_dir}/ (titles + captions in posts.json)")
 
 
 if __name__ == "__main__":

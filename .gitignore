@@ -24,3 +24,13 @@ npm-debug.log*
 # Binaries
 TwitchDownloaderCLI
 TwitchDownloaderCLI.exe
+
+# Secrets: never commit these
+*cookies*.txt
+client_secret*.json
+token*.json
+youtube_credentials.json
+
+# Downloads
+*.live_chat.json
+*.m4a

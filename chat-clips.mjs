@@ -67,7 +67,7 @@ const MIN_SCORE = Number(opt('min-score', 1.0));
 const FILTER_EMOTES = hasFlag('emotes') || hasFlag('filter-emotes');
 const DRY_RUN = hasFlag('dry-run');
 
-const REACTION_RE = /\b(lmao+|kekw|omegalul|lol+|rofl|dead|💀|😭|icant|wtf|no\s*way|holy|omg|yooo+|clutch|fail|cooked|doxxed|w|l)\b/i;
+const REACTION_RE = /(?<![a-z0-9])(lmao+|lmfao|kekw|omegalul|lol+|rofl|dead|icant|i cant|wtf|no\s*way+|holy|omg|yooo+|clutch|fail|cooked|doxxed|wasted|busted|pog(gers)?|w|l)(?![a-z0-9])|💀|😭|🤣|😂|🔥|😳|🤯/i;
 
 // Smart binary detection for TwitchDownloaderCLI
 const resolveTDL = () => {

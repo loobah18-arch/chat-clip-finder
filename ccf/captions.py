@@ -1,0 +1,143 @@
+"""Word-by-word captions (the 2025-26 Shorts / Reels / TikTok look) plus the hook title and credit,
+all in one ASS file so libass draws everything in a single ffmpeg pass.
+
+  * faster-whisper gives word timestamps (free, CPU, ~1 min for 3 clips on GitHub Actions)
+  * 1-3 words on screen at a time, ALL CAPS, heavy font, thick black outline
+  * the word being said pops (scale) and turns yellow; the rest stay white
+  * Whisper's invented words during game music / explosions are dropped (low probability)
+  * hook title: black text on a white box at the top for the first seconds (Instagram style)
+"""
+import re
+from pathlib import Path
+
+FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200d]+")
+
+_model = None
+
+
+def transcribe(media, model_size="small", language=None):
+    """[{'w','s','e'}] words with times in seconds, or [] when faster-whisper isn't installed."""
+    global _model
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        print("   ! faster-whisper not installed: pip install faster-whisper (captions skipped)", flush=True)
+        return []
+    if _model is None:
+        print(f"   Loading Whisper '{model_size}' (first run downloads it)...", flush=True)
+        _model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    # decode with ffmpeg ourselves (avoids PyAV version issues on Termux / CI)
+    import subprocess
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(media), "-vn", "-ac", "1",
+                          "-ar", "16000", "-f", "s16le", "-"], capture_output=True).stdout
+    if not raw:
+        return []
+    audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+    segs, _info = _model.transcribe(audio, language=language, word_timestamps=True, vad_filter=True,
+                                    vad_parameters={"min_silence_duration_ms": 300},
+                                    condition_on_previous_text=False)
+    words = []
+    for seg in segs:
+        if seg.no_speech_prob > 0.7:
+            continue
+        for w in seg.words or []:
+            text = w.word.strip()
+            if not text or w.probability < 0.35:
+                continue
+            words.append({"w": text, "s": float(w.start), "e": float(w.end)})
+    return words
+
+
+def _clean(t):
+    t = EMOJI_RE.sub("", t)
+    t = re.sub(r"[{}\\]", "", t)
+    return t.strip()
+
+
+def group_words(words, max_words=3, max_chars=16, max_gap=0.45):
+    groups, cur = [], []
+    for w in words:
+        txt = _clean(w["w"]).upper()
+        if not txt:
+            continue
+        w = dict(w, w=txt)
+        if cur and (len(cur) >= max_words or w["s"] - cur[-1]["e"] > max_gap
+                    or len(" ".join(x["w"] for x in cur + [w])) > max_chars
+                    or cur[-1]["w"][-1:] in ".?!,"):
+            groups.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _ts(t):
+    t = max(0.0, t)
+    cs = int(round(t * 100))
+    return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
+
+
+def _wrap(text, width=20):
+    """Balanced 1-2 line wrap (no lonely last word)."""
+    words = text.split()
+    if len(text) <= width or len(words) < 2:
+        return text
+    best = min(range(1, len(words)),
+               key=lambda k: max(len(" ".join(words[:k])), len(" ".join(words[k:]))))
+    return " ".join(words[:best]) + r"\N" + " ".join(words[best:])
+
+
+HIGHLIGHT = "&H0000E5FF&"  # yellow (ASS is BGR)
+WHITE = "&H00FFFFFF&"
+
+
+def build_ass(out_path, words, duration, caption_y=1000, hook="", hook_secs=3.5, credit="",
+              font="Montserrat Black", hook_font="Montserrat Black", credit_v=180):
+    head = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,7,4,5,40,40,0,1
+Style: Hook,{hook_font},64,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,22,0,8,90,90,170,1
+Style: Credit,{font},36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,3,1,8,40,40,{credit_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    ev = []
+    pos = rf"\pos(540,{caption_y})"
+    groups = group_words(words)
+    for gi, g in enumerate(groups):
+        nxt = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else duration
+        g_end = min(duration, nxt, g[-1]["e"] + 0.25)
+        for i, w in enumerate(g):
+            s = w["s"]
+            e = g[i + 1]["s"] if i + 1 < len(g) else g_end
+            if e - s < 0.05:
+                continue
+            parts = []
+            for j, x in enumerate(g):
+                if j == i:
+                    parts.append(r"{\c" + HIGHLIGHT + r"\fscx112\fscy112}" + x["w"] + r"{\c" + WHITE + r"\fscx100\fscy100}")
+                else:
+                    parts.append(x["w"])
+            pop = r"{\fscx85\fscy85\t(0,90,\fscx100\fscy100)}" if i == 0 else ""
+            ev.append(f"Dialogue: 1,{_ts(s)},{_ts(e)},Cap,,0,0,0,,{{{pos}}}{pop}{' '.join(parts)}")
+    hook = _clean(hook or "")
+    if hook:
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
+                  r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
+    credit = _clean(credit or "")
+    if credit:
+        c_start = min(hook_secs, duration) if hook else 0
+        ev.append(f"Dialogue: 0,{_ts(c_start)},{_ts(duration)},Credit,,0,0,0,,{{\\fad(200,0)\\alpha&H30&}}{credit}")
+    Path(out_path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
+    return out_path

@@ -66,11 +66,12 @@ def upload_short(video_path: Path, title: str, description: str = "", tags: list
         clean_title = f"{clean_title[:85]} #Shorts"
 
     tags = tags or ["shorts", "gaming", "streamer", "twitch"]
+    tags = [t for t in tags if t][:15]
 
     body = {
         "snippet": {
             "title": clean_title,
-            "description": description or f"{clean_title}\n\n#Shorts #Gaming #TwitchHighlights",
+            "description": (description or f"{clean_title}\n\n#Shorts #Gaming #TwitchHighlights")[:4900],
             "tags": [t.replace("#", "") for t in tags],
             "categoryId": "20",  # Gaming
         },
@@ -97,14 +98,36 @@ def upload_short(video_path: Path, title: str, description: str = "", tags: list
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Upload video to YouTube Shorts")
-    parser.add_argument("video", help="Path to video file (.mp4)")
-    parser.add_argument("--title", required=True, help="Video title")
+    parser = argparse.ArgumentParser(description="Upload video(s) to YouTube Shorts")
+    parser.add_argument("video", nargs="?", help="Path to video file (.mp4)")
+    parser.add_argument("--posts", help="posts.json from chat_clips.py: upload every clip with its own title")
+    parser.add_argument("--title", help="Video title (single-video mode)")
     parser.add_argument("--description", default="", help="Video description")
     parser.add_argument("--tags", default="shorts,twitch,highlights,gaming", help="Comma-separated tags")
     parser.add_argument("--privacy", default="public", choices=["public", "unlisted", "private"])
 
     args = parser.parse_args()
+    if args.posts:
+        with open(args.posts, encoding="utf-8") as f:
+            posts = json.load(f)
+        if not posts:
+            print("No clips in posts.json, nothing to upload.")
+            return
+        failed = 0
+        for p in posts:
+            path = Path(p["file"])
+            if not path.exists():
+                print(f"Skipping missing file: {path}", file=sys.stderr)
+                continue
+            try:
+                upload_short(path, p["title"], p.get("description", ""), p.get("tags"), args.privacy)
+            except Exception as e:  # keep going: one failed upload shouldn't lose the rest
+                failed += 1
+                print(f"Upload failed for {path}: {e}", file=sys.stderr)
+        sys.exit(1 if failed == len(posts) else 0)
+
+    if not args.video or not args.title:
+        parser.error("give a video and --title, or --posts posts.json")
     video_path = Path(args.video)
     if not video_path.exists():
         print(f"Error: file not found: {video_path}", file=sys.stderr)

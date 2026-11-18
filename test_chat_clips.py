@@ -145,6 +145,52 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn("Caption Helper", res.stdout)
 
+    def test_reaction_classifier_emoji_and_gta6(self):
+        from ccf.chat import classify
+        self.assertGreater(classify("💀💀", "gta6")[0], 0)        # emoji-only messages count now
+        self.assertGreater(classify("😭", "gta6")[0], 0)
+        self.assertEqual(classify("well done", "gta6")[0], 0)      # 'l' inside words is not an L
+        self.assertEqual(classify("WASTED", "gta6")[1], "game")
+        self.assertLess(classify("W", "gta6")[0], classify("KEKW", "gta6")[0])  # single letters weigh less
+
+    def test_youtube_live_chat_loader(self):
+        from ccf.chat import load_chat
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "x.live_chat.json"
+            line = {"replayChatItemAction": {"videoOffsetTimeMsec": "12500", "actions": [{"addChatItemAction": {
+                "item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": "NO WAY "},
+                {"emoji": {"emojiId": "💀"}}]}, "authorName": {"simpleText": "a"}}}}}]}}
+            p.write_text(json.dumps(line, ensure_ascii=False) + "\n", encoding="utf-8")
+            msgs, length = load_chat(p)
+            self.assertEqual(len(msgs), 1)
+            self.assertAlmostEqual(msgs[0]["t"], 12.5)
+            self.assertIn("💀", msgs[0]["text"])
+
+    def test_source_kinds(self):
+        from ccf.sources import kind_of
+        self.assertEqual(kind_of("https://www.youtube.com/watch?v=abc"), "youtube")
+        self.assertEqual(kind_of("https://youtu.be/abc"), "youtube")
+        self.assertEqual(kind_of("https://www.twitch.tv/videos/1234567890"), "twitch")
+
+    def test_titles_are_unique_per_clip(self):
+        from ccf import titles
+        a = titles.make(1, "laugh", "", "kai", "gta6")
+        b = titles.make(2, "shock", "", "kai", "gta6")
+        self.assertNotEqual(a["title"], b["title"])
+        self.assertIn("GTA6", a["tags"])
+        self.assertEqual(a["credit"], "@kai")
+
+    def test_ass_builder(self):
+        from ccf.captions import build_ass
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "c.ass"
+            words = [{"w": "no", "s": 0.0, "e": 0.3}, {"w": "way", "s": 0.3, "e": 0.7}, {"w": "bro", "s": 0.8, "e": 1.1}]
+            build_ass(out, words, 5.0, hook="WAIT FOR IT", credit="@kai")
+            txt = out.read_text(encoding="utf-8")
+            self.assertIn("NO WAY BRO", txt.replace("{\\c&H0000E5FF&\\fscx112\\fscy112}", "").replace("{\\c&H00FFFFFF&\\fscx100\\fscy100}", ""))
+            self.assertIn("WAIT FOR IT", txt)
+            self.assertIn("@kai", txt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,30 +1,47 @@
 # 🎬 The Chat Clip Finder
 
-> **Let Twitch chat find the best moments of a stream, then cut them into vertical 9:16 clips.**  
-> No paid AI subscription. 100% free and open-source.
+> **Let chat find the best moments of a Twitch or YouTube stream, then turn them into ready-to-post Shorts, Reels and TikToks.**
+> Tuned for **GTA 6** streams and gameplay. Free, open-source, runs on GitHub Actions from your phone.
+
+## 🆕 v2: modern Shorts, YouTube streams, GTA 6 mode
+
+| | What you get |
+|---|---|
+| 🎙️ **Word-by-word captions** | Whisper (free, CPU) times every word. 1-3 words on screen, ALL CAPS, heavy outline, the spoken word pops in yellow. Whisper's made-up words during music / explosions are dropped. |
+| 📱 **Streamer layout** | Webcam found automatically (YuNet face detector) -> cam on top, gameplay below, captions on the seam. No cam (gameplay uploads, trailers) -> zoomed gameplay over a blurred copy. |
+| 🪝 **Hook title** | Black-on-white hook for the first 3.5 s (Instagram style), picked per clip from how chat reacted ("WAIT... WHAT JUST HAPPENED?", "5 STARS IN 10 SECONDS"). |
+| ✅ **Platform-ready** | 1080x1920, 30 fps, -14 LUFS loudness, progress bar, faststart, key content kept out of the apps' button areas, `@streamer` credit on screen. |
+| ▶️ **YouTube streams** | Paste a YouTube video / past live-stream link. Chat replay + only the needed segments are downloaded with yt-dlp, using your cookies file (ClipKaro-style lookup) and optional proxy. |
+| 🚔 **GTA 6 mode** (`--game gta6`, default) | Chat reactions like WASTED, BUSTED, 5 STAR, VICE CITY, cops, chase count extra; GTA 6 titles + hashtags; every clip gets its own title. |
+| 🔊 **No chat? No problem** | `--no-chat` finds moments from loudness spikes (crashes, explosions, screaming) for gameplay videos and trailers. |
+| 🧹 **Skips dead air** | Ignores the first 2 min ("Starting soon") and last minute of a stream. |
+
+```
+python3 chat_clips.py --url "https://www.youtube.com/watch?v=..." --emotes --top 5
+python3 chat_clips.py --url "https://www.twitch.tv/videos/123..." --emotes
+python3 chat_clips.py --url "https://youtu.be/..." --no-chat          # GTA 6 gameplay upload, no chat
+```
+Install once: `pip install -r requirements.txt` + FFmpeg. Finished clips land in `clips/`, with a title,
+description and hashtags for each one in `clips/posts.json`.
+
+### YouTube cookies
+YouTube asks GitHub's servers to sign in. Export your cookies (any "Get cookies.txt" browser extension,
+while logged in to a **throwaway** Google account), then save the file's text (or base64) as the repo
+secret `YOUTUBE_COOKIES`. Locally, just put it next to the script as `youtube_cookies.txt`.
+Optional: `YOUTUBE_PROXY` secret if the runner is still blocked. Cookies expire, so re-export when
+downloads start failing.
+
+### Cloud runner
+Actions -> **Clip Stream to Shorts** -> Run workflow -> paste the link. Leave `upload_to_youtube` off to
+check the clips first (download them from the run's artifacts); demo runs never upload.
 
 ---
 
 ## 💡 The Idea: Chat Knows Where the Clip Is
 
-When something crazy happens on a stream, chat explodes: hundreds of `"LMAO"`, `"KEKW"`, or `"NO WAY"` flood in within seconds. That burst is the moment worth clipping.
-
-Instead of watching six hours of raw footage, **The Chat Clip Finder** reads the full chat log, computes chat velocity relative to its local baseline, and cuts vertical TikTok/Reels/Shorts clips directly from the spikes.
-
-```
-💬 Grab the chat       📈 Find the spikes           ✂️ Cut the clips
-   Every message with  -> Messages per 10s       -> 30s vertical 9:16
-   timestamp              compared to 5m baseline   1080x1920
-```
-
-### 🧠 The Trick
-> **Chat reacts AFTER the moment.** People see something happen, then type.  
-> The tool starts every clip **20 seconds before the spike** and ends it **10 seconds after**. You capture the buildup and the moment itself—not just the aftermath.
-
-### 🎯 The Smart Part (Local Baseline)
-A busy stream has a high chat volume all the time. The tool compares each 10-second slice to the **5 minutes before and after it** using a moving median. It detects moments that are unusually explosive relative to their surroundings, not just the busiest hour of the stream.
-
----
+When something crazy happens on a stream, chat explodes. The tool counts messages per 10 seconds,
+compares each slice to the 5 minutes around it, and cuts from the spikes. Chat reacts *after* the
+moment, so clips start 20 s before the spike and end 10 s after.
 
 ## ⚡ Quick Start (3 Commands)
 
@@ -59,40 +76,6 @@ Top Moments:
 
 ---
 
-
----
-
-## 🎯 Pro Modes: Reaction Emote Filtering & Stacked Layout
-
-### 1. 🤣 Emote / Reaction Velocity Filter (`--emotes`)
-Raw chat counts can spike from text-to-speech donations or routine chat chatter. With `--emotes`, the algorithm strictly scores bursts of real emotional reactions:
-`LMAO`, `KEKW`, `OMEGALUL`, `💀`, `😭`, `WTF`, `NO WAY`, `W`, `L`, `BRO`, `DEAD`
-```bash
-python3 chat_clips.py chat.json --emotes --min-score 3.0
-```
-This isolates real comedy/hype moments with up to **12x signal-to-noise ratio** compared to baseline chat!
-
-### 2. 📱 Stacked Vertical Gaming Layout (`--layout stack`)
-The gold-standard TikTok/Shorts gaming layout:
-- **Top:** Streamer reaction webcam enlarged to fill top ($1080 \times 720$).
-- **Middle:** 2-layer kinetic neon glowing subtitles (anidoc narrator-v2 style).
-- **Bottom:** Focused gameplay ($1080 \times 1080$), cleanly cutting out duplicate small facecam overlays.
-
-```bash
-# Auto-detect facecam with OpenCV or specify webcam position:
-python3 chat_clips.py chat.json --video stream.mp4 --layout stack --cam bottom-left
-```
-
-## ☁️ Cloud Runner (GitHub Actions — No Local Install Needed)
-
-Don't want to install FFmpeg or download heavy video files to your computer or phone? Run the clipper entirely in GitHub's cloud runners:
-
-1. Fork or open this repo on GitHub.
-2. Go to **Actions** → **Clip Twitch Stream (Cloud Runner)**.
-3. Click **Run workflow**:
-   - Paste the **Twitch VOD URL** (e.g. `https://www.twitch.tv/videos/1234567890`)
-   - (Optional) Enter opening hook text (e.g. `Wait for it 😳`)
-4. Download the ready-to-post vertical 9:16 `.mp4` clips directly from the workflow artifacts!
 
 ---
 
@@ -141,7 +124,8 @@ node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890
 ```
 > *If you already downloaded the entire stream video, use `--video stream.mp4` instead of `--vod`.*
 
-### Step 8 · Add Captions & Hook (Step 9 of Guide)
+### Step 8 · Captions & Hook
+v2 adds word-by-word captions and a hook automatically. The old helper still works for one-off edits:
 Most users watch Short-form video with the sound muted. Add captions or an opening hook:
 - **Built-in Hook Caption**:
   ```bash
@@ -163,7 +147,16 @@ Add any of these flags to customize the output:
 | `--after <s>` | Seconds after the spike to end clip | `10` |
 | `--gap <s>` | Minimum seconds between two clips | `90` |
 | `--bucket <s>` | Size of each counting slice in seconds | `10` |
-| `--layout <mode>` | 9:16 layout: `blur` (ambient fill with full 16:9 stream) or `crop` (center zoom) | `blur` |
+| `--layout <mode>` | `auto`, `stack` (cam top), `gameplay` (zoomed, no cam), `blur`, `crop` | `auto` |
+| `--cam <pos>` | Webcam position, or `auto` to detect | `auto` |
+| `--game <name>` | `gta6` or `none` | `gta6` |
+| `--captions on/off` | Word-by-word captions | `on` |
+| `--lang <code>` | Spoken language (`en`, `hi`...) | auto |
+| `--hook <text>` | Same hook on every clip | per clip |
+| `--credit <name>` | Streamer credit | from video |
+| `--url <link>` | Twitch or YouTube link | — |
+| `--no-chat` | Loudness spikes instead of chat | off |
+| `--skip-start / --skip-end` | Ignore intro / outro seconds | `120` / `60` |
 | `--out <folder>` | Folder name for the output clips | `clips` |
 | `--video <file>` | Cut from a local video file you already have | — |
 | `--vod <url/id>` | Cut from Twitch directly via TwitchDownloaderCLI | — |
@@ -193,6 +186,7 @@ node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890 --to
 ## ⚖️ Etiquette & Credits
 
 - **Only clip creators who allow it.** Credit the streamer in your caption and on screen (`@streamer`).
+- Facecam model, cookies lookup and safe-zone ideas from [ClipKaro](https://github.com/allthingsaman/ClipKaro) by Aman Upadhyay (MIT).
 - Built based on the original Chat Clip Finder guide by [@ai.with.raiyan](https://www.instagram.com/ai.with.raiyan/).
 - Uses [TwitchDownloader](https://github.com/lay295/TwitchDownloader) by `lay295` (MIT) and [FFmpeg](https://ffmpeg.org).
 - License: [MIT](LICENSE)

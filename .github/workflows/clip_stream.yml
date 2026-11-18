@@ -1,188 +1,208 @@
-name: Clip Twitch Stream (Cloud Runner)
+name: Clip Stream to Shorts (Cloud Runner)
 
 on:
   workflow_dispatch:
     inputs:
       vod_url:
-        description: 'Twitch VOD URL or Video ID (leave as "demo" to test without a live VOD)'
+        description: 'Twitch VOD or YouTube video / past live stream link ("demo" = test with fake footage, never uploaded)'
         required: false
         default: 'demo'
         type: string
+      game:
+        description: 'Game tuning for reactions, hooks and hashtags'
+        required: false
+        default: 'gta6'
+        type: choice
+        options:
+          - gta6
+          - none
       emotes:
-        description: 'Filter by reaction emotes/keywords (LMAO, KEKW, 💀, WTF, NO WAY) to isolate genuine hype moments'
+        description: 'Count only reaction messages (LMAO, KEKW, 💀, WTF, WASTED...)'
         required: false
         default: true
         type: boolean
+      no_chat:
+        description: 'No chat replay (gameplay upload / trailer): find moments from loudness spikes'
+        required: false
+        default: false
+        type: boolean
       min_score:
-        description: 'Minimum spike multiplier threshold (e.g. 2.5 or 4.0)'
+        description: 'Minimum spike multiplier (e.g. 2.0 or 4.0)'
         required: false
         default: '2.0'
         type: string
       layout:
-        description: 'Vertical 9:16 layout: "stack" (webcam top, game bottom), "blur" (ambient fill), "crop" (center zoom)'
+        description: '9:16 layout: auto (cam on top if a webcam is found, else zoomed gameplay)'
         required: false
-        default: 'stack'
+        default: 'auto'
         type: choice
         options:
+          - auto
           - stack
+          - gameplay
           - blur
           - crop
       cam_pos:
-        description: 'Streamer webcam position for stack layout'
+        description: 'Webcam position (auto = detect)'
         required: false
-        default: 'bottom-left'
+        default: 'auto'
         type: choice
         options:
+          - auto
           - bottom-left
           - top-left
           - bottom-right
           - top-right
       top:
-        description: 'Number of top clips to generate'
+        description: 'Number of clips'
         required: false
         default: '3'
         type: string
       before:
-        description: 'Seconds before spike to start clip'
+        description: 'Seconds before the spike'
         required: false
         default: '20'
         type: string
       after:
-        description: 'Seconds after spike to end clip'
+        description: 'Seconds after the spike'
         required: false
         default: '10'
         type: string
-      gap:
-        description: 'Minimum gap between clips (seconds)'
-        required: false
-        default: '90'
-        type: string
-      hook_text:
-        description: 'Opening hook text to burn on first 4 seconds (optional)'
-        required: false
-        default: 'WAIT FOR IT...'
-        type: string
-      upload_to_youtube:
-        description: 'Publish generated clips automatically to YouTube Shorts (grandtheftclipper)'
+      captions:
+        description: 'Word-by-word captions (Whisper)'
         required: false
         default: true
         type: boolean
+      lang:
+        description: 'Spoken language (en, hi...). Empty = auto-detect'
+        required: false
+        default: ''
+        type: string
+      hook_text:
+        description: 'Fixed hook for every clip. Empty = picked per clip from what chat said'
+        required: false
+        default: ''
+        type: string
+      credit:
+        description: 'Streamer name for on-screen credit (empty = from the video)'
+        required: false
+        default: ''
+        type: string
+      upload_to_youtube:
+        description: 'Publish to YouTube Shorts (grandtheftclipper). Never happens in demo mode'
+        required: false
+        default: false
+        type: boolean
+      privacy:
+        description: 'YouTube privacy for uploads'
+        required: false
+        default: 'public'
+        type: choice
+        options:
+          - public
+          - unlisted
+          - private
 
 jobs:
   find-and-cut-clips:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
-      contents: write
+      contents: read
+    env:
+      IS_DEMO: ${{ inputs.vod_url == 'demo' || inputs.vod_url == '' }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install FFmpeg & Fonts
+      - name: Install FFmpeg + Python packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-roboto
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp
+          pip install -r requirements.txt
 
-      - name: Configure YouTube Cookies & Proxy (If Available)
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-small-v1
+
+      - name: YouTube cookies & proxy (from repo secrets)
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-          YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
         run: |
           if [ -n "${YOUTUBE_COOKIES:-}" ]; then
-            python3 -c "import os, base64; raw = os.environ.get('YOUTUBE_COOKIES', '').strip(); (open('youtube_cookies.txt', 'w', encoding='utf-8').write(base64.b64decode(raw).decode('utf-8') if ('# Netscape' not in raw and '\t' not in raw and raw) else raw)) if raw else None"
-            if [ -f youtube_cookies.txt ]; then
-              echo "🍪 Successfully decoded YOUTUBE_COOKIES to youtube_cookies.txt"
-            fi
+            python3 - <<'PY'
+          import base64, os
+          raw = os.environ["YOUTUBE_COOKIES"].strip()
+          text = raw if ("# Netscape" in raw or "\t" in raw) else base64.b64decode(raw).decode("utf-8")
+          open("youtube_cookies.txt", "w", encoding="utf-8").write(text + "\n")
+          PY
+            echo "🍪 youtube_cookies.txt ready"
+          else
+            echo "No YOUTUBE_COOKIES secret: YouTube may ask to sign in"
           fi
 
-      - name: Download TwitchDownloaderCLI Linux-x64 (If Live VOD)
-        if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
+      - name: Download TwitchDownloaderCLI (Twitch links only)
+        if: ${{ env.IS_DEMO != 'true' && contains(inputs.vod_url, 'twitch') }}
         run: |
-          echo "Fetching latest TwitchDownloader release..."
-          LATEST_JSON=$(curl -s https://api.github.com/repos/lay295/TwitchDownloader/releases/latest)
-          DOWNLOAD_URL=$(echo "$LATEST_JSON" | grep -o 'https://[^"]*Linux-x64.zip' | head -n 1)
-          if [ -z "$DOWNLOAD_URL" ]; then
-            DOWNLOAD_URL="https://github.com/lay295/TwitchDownloader/releases/download/1.55.2/TwitchDownloaderCLI-1.55.2-Linux-x64.zip"
+          URL=$(curl -s https://api.github.com/repos/lay295/TwitchDownloader/releases/latest | grep -o 'https://[^"]*CLI[^"]*Linux-x64.zip' | head -n 1)
+          [ -z "$URL" ] && URL="https://github.com/lay295/TwitchDownloader/releases/download/1.55.2/TwitchDownloaderCLI-1.55.2-Linux-x64.zip"
+          curl -sL -o tdl.zip "$URL" && unzip -o -q tdl.zip && chmod +x TwitchDownloaderCLI
+
+      - name: Make the Shorts
+        env:
+          YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
+          VOD_URL: ${{ inputs.vod_url }}
+          HOOK: ${{ inputs.hook_text }}
+          CREDIT: ${{ inputs.credit }}
+        run: |
+          ARGS=(--game "${{ inputs.game }}" --min-score "${{ inputs.min_score }}" --top "${{ inputs.top }}"
+                --before "${{ inputs.before }}" --after "${{ inputs.after }}" --layout "${{ inputs.layout }}"
+                --cam "${{ inputs.cam_pos }}" --out clips)
+          [ "${{ inputs.emotes }}" = "true" ] && ARGS+=(--emotes)
+          [ "${{ inputs.captions }}" = "true" ] || ARGS+=(--captions off)
+          [ -n "${{ inputs.lang }}" ] && ARGS+=(--lang "${{ inputs.lang }}")
+          [ -n "$HOOK" ] && ARGS+=(--hook "$HOOK")
+          [ -n "$CREDIT" ] && ARGS+=(--credit "$CREDIT")
+          [ -f TwitchDownloaderCLI ] && ARGS+=(--tdl ./TwitchDownloaderCLI)
+
+          if [ "$IS_DEMO" = "true" ]; then
+            echo "🎮 Demo mode: fake 2h stream, nothing gets uploaded"
+            ffmpeg -y -loglevel error -f lavfi -i "testsrc2=size=1920x1080:rate=10:duration=7200" \
+              -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=44100:duration=7200" \
+              -c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p -c:a aac -b:a 64k demo_stream.mp4
+            python3 chat_clips.py demo_chat.json --video demo_stream.mp4 "${ARGS[@]}"
+          elif [ "${{ inputs.no_chat }}" = "true" ]; then
+            python3 chat_clips.py --url "$VOD_URL" --no-chat "${ARGS[@]}"
+          else
+            python3 chat_clips.py --url "$VOD_URL" "${ARGS[@]}"
           fi
-          echo "Downloading $DOWNLOAD_URL..."
-          curl -L -o tdl.zip "$DOWNLOAD_URL"
-          unzip -o tdl.zip
-          chmod +x TwitchDownloaderCLI
-          ./TwitchDownloaderCLI --version || true
-
-      - name: Handle Demo Mode
-        if: ${{ inputs.vod_url == 'demo' || inputs.vod_url == '' }}
-        run: |
-          echo "🎮 Demo Stream Mode active!"
-          echo "Generating 1080p source stream with motion and audio (2h duration)..."
-          ffmpeg -y             -f lavfi -i "testsrc2=size=1920x1080:rate=10:duration=7200"             -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=44100:duration=7200"             -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p             -c:a aac -b:a 64k             demo_stream.mp4
-          ls -lh demo_stream.mp4
-
-          EMOTE_FLAG=""
-          if [ "${{ inputs.emotes }}" = "true" ]; then
-            EMOTE_FLAG="--emotes"
-          fi
-
-          echo "Cutting vertical 9:16 clips from demo chat spikes..."
-          python3 chat_clips.py demo_chat.json             --video demo_stream.mp4             --top "${{ inputs.top }}"             --before "${{ inputs.before }}"             --after "${{ inputs.after }}"             --gap "${{ inputs.gap }}"             --layout "${{ inputs.layout }}"             --cam "${{ inputs.cam_pos }}"             --min-score "${{ inputs.min_score }}"             $EMOTE_FLAG             --out clips
-
-      - name: Handle Live Twitch VOD Mode
-        if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
-        run: |
-          echo "Downloading chat for ${{ inputs.vod_url }}..."
-          ./TwitchDownloaderCLI chatdownload --id "${{ inputs.vod_url }}" -o chat.json
-          ls -lh chat.json
-
-          EMOTE_FLAG=""
-          if [ "${{ inputs.emotes }}" = "true" ]; then
-            EMOTE_FLAG="--emotes"
-          fi
-
-          echo "Cutting vertical clips from VOD..."
-          python3 chat_clips.py chat.json             --vod "${{ inputs.vod_url }}"             --top "${{ inputs.top }}"             --before "${{ inputs.before }}"             --after "${{ inputs.after }}"             --gap "${{ inputs.gap }}"             --layout "${{ inputs.layout }}"             --cam "${{ inputs.cam_pos }}"             --min-score "${{ inputs.min_score }}"             --tdl ./TwitchDownloaderCLI             $EMOTE_FLAG             --out clips
-
-      - name: Apply Hook Caption (Optional)
-        if: ${{ inputs.hook_text != '' }}
-        run: |
-          for f in clips/clip_*.mp4; do
-            if [ -f "$f" ]; then
-              echo "Adding hook text to $f..."
-              python3 caption_helper.py "$f" --text "${{ inputs.hook_text }}" --out "${f%.mp4}_hook.mp4"
-            fi
-          done
+          rm -f youtube_cookies.txt
           ls -lh clips/
 
-      - name: Upload Clips Artifact
+      - name: Upload Shorts as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: twitch-vertical-clips
-          path: clips/
+          name: shorts-9x16
+          path: |
+            clips/*.mp4
+            clips/posts.json
+            clips/moments.json
           retention-days: 7
 
-      - name: Publish Shorts to YouTube (grandtheftclipper)
-        if: ${{ inputs.upload_to_youtube }}
+      - name: Publish to YouTube Shorts (grandtheftclipper)
+        if: ${{ inputs.upload_to_youtube && env.IS_DEMO != 'true' }}
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-        run: |
-          pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
-          for f in clips/*_hook.mp4; do
-            [ -f "$f" ] || continue
-            echo "Publishing $f to YouTube Shorts..."
-            python3 youtube_uploader.py "$f" \
-              --title "Twitch Stream Best Moments 💀🔥" \
-              --description "Top Twitch stream hype moment clipped automatically from chat activity. #shorts #twitch #gaming" \
-              --tags "shorts,twitch,highlights,gaming" \
-              --privacy "public"
-          done
+        run: python3 youtube_uploader.py --posts clips/posts.json --privacy "${{ inputs.privacy }}"

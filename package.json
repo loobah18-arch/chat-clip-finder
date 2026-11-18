@@ -1,7 +1,7 @@
 {
   "name": "chat-clip-finder",
-  "version": "1.0.0",
-  "description": "Let Twitch chat find the best moments of a stream, then cut them into vertical 9:16 clips.",
+  "version": "2.0.0",
+  "description": "Let chat find the best moments of a Twitch or YouTube stream, then turn them into ready-to-post vertical Shorts.",
   "type": "module",
   "main": "chat-clips.mjs",
   "bin": {

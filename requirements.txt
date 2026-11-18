@@ -1,0 +1,10 @@
+# Finding moments needs nothing extra. Making Shorts needs:
+yt-dlp>=2025.1.1          # YouTube / Twitch segment + chat download
+faster-whisper>=1.0.0     # word-by-word captions (CPU is fine)
+numpy
+opencv-python-headless>=4.8   # webcam detection (YuNet)
+# Uploading to YouTube:
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+requests

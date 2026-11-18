@@ -55,6 +55,11 @@ def main(argv=None):
     p.add_argument("--list", action="store_true", help="only print what would be clipped")
     a = p.parse_args(argv)
 
+    import datetime
+    if datetime.date.today() <= datetime.date(2026, 12, 1) and a.game != "gta6":
+        print(f"🎯 [GTA 6 Priority] Override active until 1 December 2026: focusing on GTA 6 (requested {a.game}).", flush=True)
+        a.game = "gta6"
+
     cookies = sources.find_cookies(a.cookies)
     proxy = a.proxy or os.environ.get("YOUTUBE_PROXY")
     state = load_state()

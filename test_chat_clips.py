@@ -191,6 +191,25 @@ class TestChatClipFinder(unittest.TestCase):
             self.assertIn("WAIT FOR IT", txt)
             self.assertIn("@kai", txt)
 
+    def test_ass_builder_ig_comment(self):
+        from ccf.captions import build_ass
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "ig.ass"
+            ig_comment = {
+                "text": "bro was NOT ready for GTA 6 💀💀",
+                "username": "vicecity_daily",
+                "time": "2h",
+                "likes": "38.4K",
+            }
+            build_ass(out, [], 10.0, ig_comment=ig_comment, style="ig-comment", credit="@ohnePixel")
+            txt = out.read_text(encoding="utf-8")
+            self.assertIn("bro was NOT ready for GTA 6", txt)
+            self.assertIn("@vicecity_daily", txt)
+            self.assertIn("38.4K", txt)
+            self.assertIn("@ohnePixel", txt)
+            # Ensure word-by-word subtitles are omitted
+            self.assertNotIn("Cap", txt.split("[Events]")[1])
+
 
     def test_discover_keeps_only_gta6_gameplay(self):
         from ccf.discover import is_gta6_gameplay as g

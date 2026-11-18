@@ -15,6 +15,53 @@ HOOKS = {
 GTA6_TAGS = ["#GTA6", "#GTAVI", "#GrandTheftAuto6", "#ViceCity", "#Shorts", "#Gaming", "#Rockstar"]
 GENERIC_TAGS = ["#Shorts", "#Gaming", "#Twitch", "#Streamer", "#Clips"]
 
+IG_COMMENTS = {
+    "laugh": [
+        "the way he laughed had me crying 😭😭",
+        "bro's laugh took 5 business days 💀",
+        "ain't no way bro started crying of laughter 😭💀",
+        "bro really thought he could survive Vice City 💀",
+        "his soul completely left his body 💀",
+        "nah this is the funniest GTA 6 clip so far 💀",
+        "he's fighting for his life not to laugh 😭",
+    ],
+    "shock": [
+        "bro was NOT ready for GTA 6 💀",
+        "Vice City police do NOT play around 😭🚔",
+        "bro paused the game in real life 💀",
+        "ain't no way that just happened on stream 😳",
+        "Rockstar really made NPCs ruthless 💀",
+        "he really thought he could escape 5 stars 💀🚔",
+        "my jaw actually dropped watching this 😳",
+    ],
+    "hype": [
+        "he is actually him bro 🐐🔥",
+        "cleanest play in Vice City history 🔥",
+        "bro pulled off the impossible 🤯",
+        "nah that timing was actually cinematic 🔥",
+        "13 years of waiting was worth this clip 🐐",
+    ],
+    "game": [
+        "13 years of waiting for this exact moment 💀",
+        "GTA 6 physics are on another level 😭",
+        "Rockstar did not have to make the graphics this insane 🤯",
+        "Florida in a nutshell honestly 💀",
+        "bro got folded by Vice City physics 😭💀",
+    ],
+    None: [
+        "bro was NOT ready for GTA 6 💀",
+        "ain't no way that just happened 😭",
+        "nah Vice City is totally out of pocket 💀",
+    ]
+}
+
+IG_USERNAMES = [
+    "vicecity_daily", "gta6_clips", "floridaman_live", "gaminghub",
+    "rockstar_central", "clipcity", "vicecitycops", "gta6memes"
+]
+IG_TIMES = ["1h", "2h", "4h", "8h", "1d"]
+IG_LIKES = ["18.4K", "24.8K", "38.2K", "49.6K", "61.3K", "82.5K"]
+
 
 def _tc(text):
     """Title Case without breaking apostrophes (Couldn't, not Couldn'T)."""
@@ -24,6 +71,12 @@ def _tc(text):
 def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None):
     rnd = random.Random(seed if seed is not None else rank)
     hook = fixed_hook or rnd.choice(HOOKS.get(kind) or HOOKS[None])
+    ig_comment = {
+        "text": rnd.choice(IG_COMMENTS.get(kind) or IG_COMMENTS[None]),
+        "username": rnd.choice(IG_USERNAMES),
+        "time": rnd.choice(IG_TIMES),
+        "likes": rnd.choice(IG_LIKES),
+    }
     who = streamer.strip()
     if game in ("gta6", "gta"):
         base = {
@@ -43,4 +96,5 @@ def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None)
     credit_line = f"Credit: {who} (go follow!)" if who else ""
     description = "\n".join(x for x in [title, credit_line, "", " ".join(tags)] if x is not None)
     return {"hook": hook, "title": title, "description": description,
-            "tags": [t.lstrip("#") for t in tags], "credit": f"@{who}" if who else ""}
+            "tags": [t.lstrip("#") for t in tags], "credit": f"@{who}" if who else "",
+            "ig_comment": ig_comment}

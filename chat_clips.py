@@ -83,7 +83,7 @@ def parse_args(argv=None):
     p.add_argument("--require-cam", action="store_true", default=True, help="skip candidate if no webcam detected")
     p.add_argument("--no-require-cam", dest="require_cam", action="store_false")
     p.add_argument("--cam", default="auto", choices=["auto", "top-left", "top-right", "bottom-left", "bottom-right"])
-    p.add_argument("--captions", default="on", choices=["on", "off"])
+    p.add_argument("--captions", default="ig-comment", choices=["ig-comment", "word", "on", "off"])
     p.add_argument("--whisper-model", default="small")
     p.add_argument("--lang")
     p.add_argument("--hook", default="")
@@ -285,7 +285,7 @@ def main(argv=None):
         print(f"   🔊 Audio peak aligned at {peak_sec:.1f}s ({peak_db:.1f} dB RMS)", flush=True)
 
         # 2. Whisper transcription
-        words = captions.transcribe(piece, a.whisper_model, a.lang) if a.captions == "on" else []
+        words = captions.transcribe(piece, a.whisper_model, a.lang) if a.captions != "off" else []
 
         # 3. Sentence & speech boundary snapping
         snapped_dur = captions.snap_speech_boundaries(words, m["duration"]) if words else m["duration"]
@@ -296,8 +296,14 @@ def main(argv=None):
         coherence = chatmod.score_moment(words, peak_db, snapped_dur)
         print(f"   🎯 Highlight accuracy & coherence score: {coherence}/100", flush=True)
 
+        caption_style = "word" if a.captions == "word" else ("off" if a.captions == "off" else "ig-comment")
+        ig_comment = m.get("ig_comment")
+        if caption_style == "ig-comment" and ig_comment:
+            print(f"   💬 Instagram comment sticker: \"{ig_comment['text']}\" (@{ig_comment['username']})", flush=True)
+
         r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"],
-                          require_cam=a.require_cam, duration=snapped_dur)
+                          require_cam=a.require_cam, duration=snapped_dur,
+                          ig_comment=ig_comment, caption_style=caption_style)
         piece.unlink(missing_ok=True)
         if not r or not r.get("layout"):
             print(f"   ! skipping candidate: render failed or no webcam detected", flush=True)

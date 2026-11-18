@@ -77,7 +77,8 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
 
 
 def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", credit="",
-           progress_bar=True, fps=30, require_cam=True, duration=None):
+           progress_bar=True, fps=30, require_cam=True, duration=None,
+           ig_comment=None, caption_style="ig-comment"):
     piece, out_path = Path(piece), Path(out_path)
     src_w, src_h, dur = probe(piece)
     if duration is not None:
@@ -87,7 +88,8 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
         return {"layout": None, "cam": None, "duration": dur}
     graph, cap_y, credit_v = video_graph(layout, src_w, src_h, cam, fps)
     ass = out_path.with_suffix(".ass")
-    captions.build_ass(ass, words or [], dur, caption_y=cap_y, hook=hook, credit=credit, credit_v=credit_v)
+    captions.build_ass(ass, words or [], dur, caption_y=cap_y, hook=hook, credit=credit, credit_v=credit_v,
+                       ig_comment=ig_comment, style=caption_style)
     last = "base"
     graph += f";[{last}]subtitles='{_esc(ass)}':fontsdir='{_esc(FONT_DIR)}'[subs]"
     last = "subs"

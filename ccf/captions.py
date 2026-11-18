@@ -183,38 +183,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
                       r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
     elif style == "ig-comment" and ig_comment:
-        card_w, card_h = 920, 190
-        card_x = (1080 - card_w) // 2  # 80
-        card_y = caption_y - (card_h // 2)
+        card_w, card_h = 900, 220
+        card_x = (1080 - card_w) // 2  # 90
+        card_y = caption_y - (card_h // 2)  # 590
         text = ig_comment.get("text", "bro was NOT ready for GTA 6 💀💀")
         uname = ig_comment.get("username", "vicecity_daily")
         time_ago = ig_comment.get("time", "2h")
         likes = ig_comment.get("likes", "38.4K")
-        pop = r"{\fad(120,0)\fscx95\fscy95\t(0,90,\fscx100\fscy100)}"
 
-        # Layer 0: Shadow
-        ev.append(f"Dialogue: 0,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{{pop}\\pos({card_x},{card_y + 4})\\p1\\c&H1A000000&}}"
-                  f"m 25 0 l 895 0 b 910 0 920 10 920 25 l 920 165 b 920 180 910 190 895 190 l 25 190 b 10 190 0 180 0 165 l 0 25 b 0 10 10 0 25 0\\p0")
-        # Layer 1: White Card
-        ev.append(f"Dialogue: 1,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{{pop}\\pos({card_x},{card_y})\\p1\\c&H00FFFFFF&\\bord1\\3c&H15000000&}}"
-                  f"m 25 0 l 895 0 b 910 0 920 10 920 25 l 920 165 b 920 180 910 190 895 190 l 25 190 b 10 190 0 180 0 165 l 0 25 b 0 10 10 0 25 0\\p0")
-        # Layer 2: Instagram Avatar Ring (Sunset gradient)
-        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{{pop}\\pos({card_x + 36},{card_y + 21})\\p1\\c&H007B2ADD&\\bord3\\3c&H002985F5&}}"
-                  f"m 0 22 b 0 10 10 0 22 0 b 34 0 44 10 44 22 b 44 34 34 44 22 44 b 10 44 0 34 0 22\\p0")
-        # Layer 2: Inner Avatar Fill
-        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{{pop}\\pos({card_x + 40},{card_y + 25})\\p1\\c&H0040342D&}}"
-                  f"m 0 18 b 0 8 8 0 18 0 b 28 0 36 8 36 18 b 36 28 28 36 18 36 b 8 36 0 28 0 18\\p0")
-        # Layer 3: Username + Timestamp
-        ev.append(f"Dialogue: 3,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{{pop}\\pos({card_x + 96},{card_y + 20})}}"
-                  f"{{\\fs30\\b1\\c&H00262626&}}@{uname} {{\\fs24\\b0\\c&H008E8E8E&}}· {time_ago}")
-        # Layer 3: Comment Text
-        ev.append(f"Dialogue: 3,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{{pop}\\pos({card_x + 40},{card_y + 73})}}"
-                  f"{{\\fs38\\b1\\c&H00111111&}}{text}")
-        # Layer 3: Reply & Likes
-        ev.append(f"Dialogue: 3,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{{pop}\\pos({card_x + 40},{card_y + 141})}}"
-                  f"{{\\fs24\\b0\\c&H00737373&}}Reply")
-        ev.append(f"Dialogue: 3,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{{pop}\\pos({card_x + 880},{card_y + 141})\\an3}}"
-                  f"{{\\fs24\\b0\\c&H00737373&}}❤️ {likes}")
+        # Layer 0: Shadow & White Card (vector path with rounded corners)
+        ev.append(f"Dialogue: 0,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{\\pos({card_x},{card_y})\\p1\\c&H00FFFFFF&\\bord6\\3c&H20000000&\\shad8\\4c&H30000000&}}"
+                  f"m 30 0 l 870 0 b 885 0 900 15 900 30 l 900 190 b 900 205 885 220 870 220 l 30 220 b 15 220 0 205 0 190 l 0 30 b 0 15 15 0 30 0\\p0")
+        # Layer 1: Instagram Avatar Ring (Sunset gradient)
+        ev.append(f"Dialogue: 1,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{\\pos({card_x + 40},{card_y + 45})\\p1\\c&H007B2ADD&\\bord3\\3c&H002985F5&}}"
+                  f"m 0 25 b 0 11 11 0 25 0 b 39 0 50 11 50 25 b 50 39 39 50 25 50 b 11 50 0 39 0 25\\p0")
+        # Layer 1: Inner Avatar Fill
+        ev.append(f"Dialogue: 1,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{\\pos({card_x + 45},{card_y + 50})\\p1\\c&H0040342D&}}"
+                  f"m 0 20 b 0 9 9 0 20 0 b 31 0 40 9 40 20 b 40 31 31 40 20 40 b 9 40 0 31 0 20\\p0")
+        # Layer 2: Username and Timestamp
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 110},{card_y + 42})}}"
+                  f"{{\\fs32\\b1\\c&H00333333&}}@{uname} {{\\fs26\\b0\\c&H00888888&}}· {time_ago}")
+        # Layer 2: Comment Text
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 102})}}"
+                  f"{{\\fs40\\b1\\c&H00111111&}}{text}")
+        # Layer 2: Reply & Likes
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 162})}}"
+                  f"{{\\fs26\\b0\\c&H00777777&}}Reply{{\\pos({card_x + 790},{card_y + 162})\\an3}}❤️ {likes}")
 
     credit = _clean(credit or "")
     if credit:

@@ -42,7 +42,7 @@ def main(argv=None):
         i = argv.index("--")
         argv, passthru = argv[:i], argv[i + 1:]
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--game", default="gta6", choices=["gta6", "none"])
+    p.add_argument("--game", default="gta6", help='"gta6" (default) or any game name, e.g. "valorant", "minecraft"')
     p.add_argument("--count", type=int, default=2, help="how many new streams/videos to clip (default 2)")
     p.add_argument("--top", type=int, default=3, help="Shorts per stream/video (default 3)")
     p.add_argument("--min-views", type=int, default=1000)
@@ -59,7 +59,7 @@ def main(argv=None):
     proxy = a.proxy or os.environ.get("YOUTUBE_PROXY")
     state = load_state()
 
-    print(f"🔎 Looking for today's top {'GTA 6 ' if a.game == 'gta6' else ''}streams and videos...", flush=True)
+    print(f"🔎 Looking for today's top {'GTA 6' if a.game == 'gta6' else a.game} streams and videos...", flush=True)
     picks, ranked = discover.discover(a.game, a.count, a.min_minutes, a.min_views, set(state),
                                       cookies, proxy, a.streamers)
     print(f"\n{len(ranked)} new candidates passed the filters. Top 10:")
@@ -78,7 +78,7 @@ def main(argv=None):
     for n, c in enumerate(picks, 1):
         sub = out_root / f"{n:02d}_{c['id'].replace(':', '_')}"
         print(f"\n🎬 [{n}/{len(picks)}] {c['channel']} | {c['title']}\n   {c['url']}", flush=True)
-        cmd = [sys.executable, "chat_clips.py", "--url", c["url"], "--game", a.game, "--top", str(a.top),
+        cmd = [sys.executable, "chat_clips.py", "--url", c["url"], "--game", "gta6" if a.game == "gta6" else "none", "--top", str(a.top),
                "--out", str(sub), "--credit", c["channel"] or ""]
         if cookies:
             cmd += ["--cookies", str(cookies)]

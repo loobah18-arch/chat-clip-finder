@@ -1,4 +1,4 @@
-name: Auto-Clip Top GTA 6 Streams
+name: Auto-Clip Top Game Streams
 
 # Every 4 hours: find today's most-watched GTA 6 streams/videos that are not clipped yet,
 # cut the best moments into Shorts, keep them as an artifact, and (only if you turn it on) upload.
@@ -7,6 +7,9 @@ on:
     - cron: '30 */4 * * *'
   workflow_dispatch:
     inputs:
+      game:
+        description: 'Game: gta6, or any name (valorant, minecraft, fortnite...)'
+        default: 'gta6'
       count:
         description: 'How many new streams/videos to clip'
         default: '2'
@@ -41,6 +44,7 @@ jobs:
     permissions:
       contents: write   # to save state/processed.json so the next run picks new videos
     env:
+      GAME: ${{ inputs.game || vars.AUTO_GAME || 'gta6' }}
       COUNT: ${{ inputs.count || '2' }}
       TOP: ${{ inputs.top || '3' }}
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
@@ -96,7 +100,7 @@ jobs:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
         run: |
-          ARGS=(--count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --tdl ./TwitchDownloaderCLI --out clips)
+          ARGS=(--game "$GAME" --count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --tdl ./TwitchDownloaderCLI --out clips)
           [ "${{ inputs.list_only }}" = "true" ] && ARGS+=(--list)
           set +e
           python3 auto_clips.py "${ARGS[@]}"

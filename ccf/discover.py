@@ -55,9 +55,18 @@ def _ytdlp_flat(url, n, cookies=None, proxy=None):
         return []
 
 
+def is_game_gameplay(title, game_name):
+    """Any other game: title must name the game and not be news/talk."""
+    t = title or ""
+    words = [w for w in re.split(r"\W+", game_name.lower()) if w]
+    if not words or not all(re.search(r"\b" + re.escape(w) + r"\b", t.lower()) for w in words):
+        return False
+    return not NOT_GAMEPLAY_RE.search(t)
+
+
 def is_gta6_gameplay(title, game="gta6"):
     if game != "gta6":
-        return True
+        return is_game_gameplay(title, game)
     t = title or ""
     if not GTA6_RE.search(t):
         return False
@@ -86,9 +95,15 @@ def _yt_candidate(e, origin):
     }
 
 
-def youtube_search(per_query=20, cookies=None, proxy=None):
+def queries_for(game):
+    if game == "gta6":
+        return YT_QUERIES
+    return [f"{game} gameplay", f"{game} live stream", f"{game} funny moments", f"{game} highlights"]
+
+
+def youtube_search(per_query=20, cookies=None, proxy=None, game="gta6"):
     found = []
-    for q in YT_QUERIES:
+    for q in queries_for(game):
         for tmpl in YT_SEARCHES:
             url = tmpl.format(q=urllib.parse.quote_plus(q))
             for e in _ytdlp_flat(url, per_query, cookies, proxy):
@@ -121,6 +136,8 @@ def _twitch_get(path, token, client_id):
 
 
 def twitch_top(game_name="Grand Theft Auto VI", n=20, logins=()):
+    if game_name.lower() == "gta6":
+        game_name = "Grand Theft Auto VI"
     cid, secret = os.environ.get("TWITCH_CLIENT_ID"), os.environ.get("TWITCH_CLIENT_SECRET")
     if not (cid and secret):
         print("   (Twitch skipped: add TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET to enable)", flush=True)
@@ -174,10 +191,10 @@ def discover(game="gta6", count=2, min_minutes=10, min_views=1000, seen=(), cook
              streamers_file="streamers.txt"):
     """Return the best `count` new candidates, best first, plus the full ranked list."""
     yt_handles, tw_logins = load_followed(streamers_file)
-    cands = youtube_search(cookies=cookies, proxy=proxy)
+    cands = youtube_search(cookies=cookies, proxy=proxy, game=game)
     if yt_handles:
         cands += youtube_channels(yt_handles, cookies=cookies, proxy=proxy)
-    cands += twitch_top(n=20, logins=tw_logins)
+    cands += twitch_top(game, n=20, logins=tw_logins)
 
     best = {}
     for c in cands:

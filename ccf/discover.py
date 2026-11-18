@@ -106,7 +106,9 @@ def youtube_search(per_query=20, cookies=None, proxy=None, game="gta6"):
     for q in queries_for(game):
         for tmpl in YT_SEARCHES:
             url = tmpl.format(q=urllib.parse.quote_plus(q))
-            for e in _ytdlp_flat(url, per_query, cookies, proxy):
+            entries = _ytdlp_flat(url, per_query, cookies, proxy)
+            print(f"   YouTube '{q}': {len(entries)} results", flush=True)
+            for e in entries:
                 c = _yt_candidate(e, f"search: {q}")
                 if c:
                     found.append(c)
@@ -196,21 +198,27 @@ def discover(game="gta6", count=2, min_minutes=10, min_views=1000, seen=(), cook
         cands += youtube_channels(yt_handles, cookies=cookies, proxy=proxy)
     cands += twitch_top(game, n=20, logins=tw_logins)
 
-    best = {}
+    best, why = {}, {}
+
+    def skip(reason):
+        why[reason] = why.get(reason, 0) + 1
+
     for c in cands:
         if c["id"] in seen or c["id"] in best:
-            continue
+            skip("already clipped / duplicate"); continue
         if c["live_status"] in ("is_live", "is_upcoming", "post_live"):
-            continue  # still live: chat replay + seeking only work once the stream has ended
+            skip("still live"); continue  # chat replay + seeking only work once the stream has ended
         if c["duration"] and c["duration"] < min_minutes * 60:
-            continue  # Shorts and short edits: nothing left to clip
+            skip("too short"); continue  # Shorts and short edits: nothing left to clip
         if not c.get("category_gta6") and not is_gta6_gameplay(c["title"], game):
-            continue
+            skip("not gameplay of this game"); continue
         if c["views"] < min_views and not c.get("followed"):
-            continue
+            skip("too few views"); continue
         # rank: followed creators first, then finished streams (they have chat), then views
         c["score"] = (2 if c.get("followed") else 0) + (1 if c["live_status"] == "was_live" else 0) \
             + (0.5 if c["gameplay_hint"] else 0) + min(c["views"], 5_000_000) / 5_000_000
         best[c["id"]] = c
+    if why:
+        print("   skipped: " + ", ".join(f"{v} {k}" for k, v in sorted(why.items(), key=lambda kv: -kv[1])), flush=True)
     ranked = sorted(best.values(), key=lambda c: c["score"], reverse=True)
     return ranked[:count], ranked

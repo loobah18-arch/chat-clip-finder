@@ -43,8 +43,8 @@ def main(argv=None):
         argv, passthru = argv[:i], argv[i + 1:]
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--game", default="gta6", help='"gta6" (default) or any game name, e.g. "valorant", "minecraft"')
-    p.add_argument("--count", type=int, default=2, help="how many new streams/videos to clip (default 2)")
-    p.add_argument("--top", type=int, default=3, help="Shorts per stream/video (default 3)")
+    p.add_argument("--count", type=int, default=1, help="how many new streams/videos to clip (default 1)")
+    p.add_argument("--top", type=int, default=1, help="Shorts per stream/video (default 1)")
     p.add_argument("--min-views", type=int, default=1000)
     p.add_argument("--min-minutes", type=int, default=10)
     p.add_argument("--streamers", default="streamers.txt")

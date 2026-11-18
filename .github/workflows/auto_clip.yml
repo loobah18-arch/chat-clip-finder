@@ -15,10 +15,10 @@ on:
         default: 'gta6'
       count:
         description: 'How many new streams/videos to clip'
-        default: '2'
+        default: '1'
       top:
         description: 'Shorts per stream/video'
-        default: '3'
+        default: '1'
       min_views:
         description: 'Skip anything with fewer views (creators in streamers.txt are always allowed)'
         default: '1000'
@@ -29,11 +29,11 @@ on:
       upload_to_youtube:
         description: 'Upload the best Short to YouTube (Candle Gate still protects the channel)'
         type: boolean
-        default: false
+        default: true
       force_upload:
         description: 'Skip the Candle Gate protection layers (not recommended)'
         type: boolean
-        default: false
+        default: true
       privacy:
         description: 'YouTube privacy'
         type: choice
@@ -82,8 +82,8 @@ jobs:
       contents: write   # saves state/processed.json, upload_history.json, candle_gate_state.json
     env:
       GAME: ${{ inputs.game || vars.AUTO_GAME || 'gta6' }}
-      COUNT: ${{ inputs.count || '2' }}
-      TOP: ${{ inputs.top || '3' }}
+      COUNT: ${{ inputs.count || '1' }}
+      TOP: ${{ inputs.top || '1' }}
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
       # scheduled runs upload only if the repo variable AUTO_UPLOAD is true
       DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}

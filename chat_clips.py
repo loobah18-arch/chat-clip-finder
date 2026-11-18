@@ -79,6 +79,8 @@ def parse_args(argv=None):
     p.add_argument("--skip-start", type=int, default=120)
     p.add_argument("--skip-end", type=int, default=60)
     p.add_argument("--layout", default="auto", choices=["auto", "stack", "gameplay", "blur", "crop"])
+    p.add_argument("--require-cam", action="store_true", default=True, help="skip candidate if no webcam detected")
+    p.add_argument("--no-require-cam", dest="require_cam", action="store_false")
     p.add_argument("--cam", default="auto", choices=["auto", "top-left", "top-right", "bottom-left", "bottom-right"])
     p.add_argument("--captions", default="on", choices=["on", "off"])
     p.add_argument("--whisper-model", default="small")
@@ -263,9 +265,22 @@ def main(argv=None):
             sources.download_section(a.video, m["start"], m["end"], piece)
         else:
             sources.download_section(a.url, m["start"], m["end"], piece, a.cookies, a.proxy, tdl)
+
+        # Early check for webcam if required to avoid wasted whisper and render time
+        if a.require_cam:
+            src_w, src_h, _ = render.probe(piece)
+            layout, cam = render.choose_layout(a.layout, a.cam, piece, src_w, src_h, require_cam=True)
+            if not layout:
+                print(f"   ! skipping candidate: no webcam detected (require-cam active)", flush=True)
+                piece.unlink(missing_ok=True)
+                sys.exit(3)
+
         words = captions.transcribe(piece, a.whisper_model, a.lang) if a.captions == "on" else []
-        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"])
+        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"], require_cam=a.require_cam)
         piece.unlink(missing_ok=True)
+        if not r or not r.get("layout"):
+            print(f"   ! skipping candidate: render failed or no webcam detected", flush=True)
+            sys.exit(3)
         print(f"   ✅ {out_path}  ({r['layout']} layout, {len(words)} caption words)")
         posts.append({"file": str(out_path), "title": m["title"], "description": m["description"],
                       "tags": m["tags"], "layout": r["layout"]})

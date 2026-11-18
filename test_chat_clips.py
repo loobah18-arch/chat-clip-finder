@@ -201,6 +201,29 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertFalse(g("GTA 5 Funny Moments"))
         self.assertFalse(g("LIVE: Playing Fortnite + Talking about GTA 6"))
 
+    def test_choose_layout_require_cam(self):
+        from ccf.render import choose_layout
+        # When cam_pos preset is given, stack layout and preset box are returned
+        layout, cam = choose_layout("stack", "bottom-left", None, 1920, 1080, require_cam=True)
+        self.assertEqual(layout, "stack")
+        self.assertIsNotNone(cam)
+
+        # When auto layout has no cam detected and require_cam=True, None is returned to skip candidate
+        layout, cam = choose_layout("auto", "auto", Path("nonexistent.mp4"), 1920, 1080, require_cam=True)
+        self.assertIsNone(layout)
+        self.assertIsNone(cam)
+
+    def test_video_graph_original_screen_ratio(self):
+        from ccf.render import video_graph, CAM_H
+        # Exact screen ratio check: CAM_H is 700, gameplay gets 1220, vstack is used
+        self.assertEqual(CAM_H, 700)
+        graph, cap_y, credit_v = video_graph("stack", 1920, 1080, cam=(0, 0, 480, 270))
+        self.assertIn("scale=1080:700", graph)
+        self.assertIn("scale=1080:1220", graph)
+        self.assertIn("vstack=inputs=2", graph)
+        self.assertEqual(cap_y, 700)
+        self.assertEqual(credit_v, 190)
+
 
 if __name__ == "__main__":
     unittest.main()

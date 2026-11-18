@@ -75,9 +75,12 @@ def main(argv=None):
     out_root = Path(a.out)
     out_root.mkdir(parents=True, exist_ok=True)
     all_posts, done = [], 0
-    for n, c in enumerate(picks, 1):
-        sub = out_root / f"{n:02d}_{c['id'].replace(':', '_')}"
-        print(f"\n🎬 [{n}/{len(picks)}] {c['channel']} | {c['title']}\n   {c['url']}", flush=True)
+    candidates = ranked if ranked else picks
+    for n, c in enumerate(candidates, 1):
+        if done >= a.count:
+            break
+        sub = out_root / f"{done + 1:02d}_{c['id'].replace(':', '_')}"
+        print(f"\n🎬 [Short {done + 1}/{a.count} - Candidate {n}/{len(candidates)}] {c['channel']} | {c['title']}\n   {c['url']}", flush=True)
         cmd = [sys.executable, "chat_clips.py", "--url", c["url"], "--game", "gta6" if a.game == "gta6" else "none", "--top", str(a.top),
                "--out", str(sub), "--credit", c["channel"] or ""]
         if cookies:
@@ -100,7 +103,7 @@ def main(argv=None):
             all_posts += posts
             done += 1
         else:
-            print(f"   ! skipped (exit {rc})", flush=True)
+            print(f"   ! skipped (exit {rc}), trying next candidate...", flush=True)
 
     (out_root / "posts.json").write_text(json.dumps(all_posts, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n🎉 {len(all_posts)} Shorts from {done} source(s). Titles in {out_root}/posts.json")

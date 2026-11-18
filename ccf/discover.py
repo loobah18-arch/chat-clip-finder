@@ -99,7 +99,7 @@ def _yt_candidate(e, origin):
 def queries_for(game):
     if game == "gta6":
         return YT_QUERIES
-    return [f"{game} gameplay", f"{game} live stream", f"{game} funny moments", f"{game} highlights"]
+    return [f"{game} gameplay", f"{game} highlights", f"{game} funny moments", f"{game} best plays"]
 
 
 def youtube_search(per_query=20, cookies=None, proxy=None, game="gta6"):
@@ -216,9 +216,14 @@ def discover(game="gta6", count=2, min_minutes=10, min_views=1000, seen=(), cook
         # some regions/runners get no view count from search: the search is already sorted by views
         if c.get("views_known", True) and c["views"] < min_views and not c.get("followed"):
             skip("too few views"); continue
-        # rank: followed creators first, then finished streams (they have chat), then views
-        c["score"] = (2 if c.get("followed") else 0) + (1 if c["live_status"] == "was_live" else 0) \
-            + (0.5 if c["gameplay_hint"] else 0) + min(c["views"], 5_000_000) / 5_000_000
+        # rank: followed creators first (+2).
+        # On Twitch: finished streams (+1) have chat replays.
+        # On YouTube: regular uploaded videos (+1) download cleanly without live manifest bot gates.
+        is_twitch_vod = (c["platform"] == "twitch" and c["live_status"] == "was_live")
+        is_yt_video = (c["platform"] == "youtube" and c["live_status"] != "was_live")
+        c["score"] = (2.0 if c.get("followed") else 0.0) \
+            + (1.0 if (is_twitch_vod or is_yt_video) else 0.0) \
+            + (0.5 if c["gameplay_hint"] else 0.0) + min(c["views"], 5_000_000) / 5_000_000
         best[c["id"]] = c
     if why:
         print("   skipped: " + ", ".join(f"{v} {k}" for k, v in sorted(why.items(), key=lambda kv: -kv[1])), flush=True)

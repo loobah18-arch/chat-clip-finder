@@ -41,16 +41,33 @@ def find_cookies(explicit=None):
     return found[0] if found else None
 
 
-def _ytdlp_base(cookies=None, proxy=None):
+def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=False):
     exe = shutil.which("yt-dlp")
     cmd = [exe] if exe else [sys.executable, "-m", "yt_dlp"]
     cmd += ["--no-warnings", "--no-playlist", "--retries", "5", "--fragment-retries", "10"]
-    cookies = find_cookies(cookies)
-    if cookies:
-        cmd += ["--cookies", cookies]
+    if shutil.which("node"):
+        cmd += ["--js-runtimes", "node", "--remote-components", "ejs:github"]
+
+    if not no_cookies:
+        cookies_file = find_cookies(cookies)
+        if cookies_file:
+            cmd += ["--cookies", cookies_file]
+
     proxy = proxy or os.environ.get("YOUTUBE_PROXY")
     if proxy:
         cmd += ["--proxy", proxy]
+
+    po_token = os.environ.get("YT_PO_TOKEN")
+    visitor_data = os.environ.get("YT_VISITOR_DATA")
+    if pot and po_token and visitor_data:
+        cmd += [
+            "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
+            "--extractor-args", f"youtube:visitor_data={visitor_data}",
+        ]
+
+    if client:
+        cmd += ["--extractor-args", f"youtube:player_client={client}"]
+
     return cmd
 
 
@@ -73,13 +90,23 @@ def fetch_chat(url, out_dir, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"
         return out
     if k in ("youtube", "ytdlp"):
         tmpl = str(out_dir / "chat")
-        cmd = _ytdlp_base(cookies, proxy) + ["--skip-download", "--write-subs", "--sub-langs", "live_chat",
-                                              "-o", tmpl, url]
-        try:
-            _run(cmd, "YouTube live-chat replay download")
-        except RuntimeError as e:
-            print(f"   ! {e}", flush=True)
-            return None
+        for client, use_cookies, use_pot in [
+            (None, True, True),
+            ("mweb", True, True),
+            ("ios", False, False),
+        ]:
+            cmd = _ytdlp_base(cookies=cookies if use_cookies else None, proxy=proxy, client=client, pot=use_pot, no_cookies=not use_cookies) + [
+                "-4", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
+                "-o", tmpl, url
+            ]
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if res.returncode == 0:
+                    hits = sorted(out_dir.glob("chat*.live_chat.json"))
+                    if hits:
+                        return hits[0]
+            except Exception:
+                pass
         hits = sorted(out_dir.glob("chat*.live_chat.json"))
         return hits[0] if hits else None
     return None
@@ -88,15 +115,27 @@ def fetch_chat(url, out_dir, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"
 def video_info(url, cookies=None, proxy=None):
     """Title, channel and duration via yt-dlp (works for Twitch and YouTube)."""
     import json
-    cmd = _ytdlp_base(cookies, proxy) + ["-J", "--skip-download", url]
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if out.returncode == 0:
-            d = json.loads(out.stdout)
-            return {"title": d.get("title", ""), "channel": d.get("channel") or d.get("uploader") or "",
-                    "duration": float(d.get("duration") or 0), "was_live": bool(d.get("was_live"))}
-    except Exception:
-        pass
+    for client, use_cookies, use_pot in [
+        (None, True, True),
+        ("mweb", True, True),
+        ("ios", False, False),
+        ("visionos", False, False),
+    ]:
+        cmd = _ytdlp_base(cookies=cookies if use_cookies else None, proxy=proxy, client=client, pot=use_pot, no_cookies=not use_cookies) + [
+            "-4", "-J", "--skip-download", url
+        ]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if out.returncode == 0:
+                d = json.loads(out.stdout)
+                return {
+                    "title": d.get("title", ""),
+                    "channel": d.get("channel") or d.get("uploader") or "",
+                    "duration": float(d.get("duration") or 0),
+                    "was_live": bool(d.get("was_live")),
+                }
+        except Exception:
+            continue
     return {"title": "", "channel": "", "duration": 0.0, "was_live": False}
 
 
@@ -114,12 +153,52 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k",
               str(out_path)], "local segment copy")
         return out_path
-    cmd = _ytdlp_base(cookies, proxy) + [
-        "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/b",
-        "--download-sections", f"*{start:.2f}-{end:.2f}", "--force-keyframes-at-cuts",
-        "--merge-output-format", "mp4", "-o", str(out_path), url]
-    _run(cmd, "segment download")
-    return out_path
+
+    if k != "youtube":
+        cmd = _ytdlp_base(cookies, proxy) + [
+            "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/b",
+            "--download-sections", f"*{start:.2f}-{end:.2f}", "--force-keyframes-at-cuts",
+            "--merge-output-format", "mp4", "-o", str(out_path), url]
+        _run(cmd, "segment download")
+        return out_path
+
+    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
+    tiers = [
+        ("mweb", True, True, "Tier 1: mweb + PO Token/cookies"),
+        ("web", True, True, "Tier 1: web + PO Token/cookies"),
+        ("visionos", False, False, "Tier 2: visionos (no cookies)"),
+        ("ios", False, False, "Tier 2: ios (no cookies)"),
+        ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
+    ]
+
+    last_err = None
+    for client, use_cookies, use_pot, label in tiers:
+        try:
+            print(f"   🔄 Attempting segment download via {label}...", flush=True)
+            cmd = _ytdlp_base(
+                cookies=cookies if use_cookies else None,
+                proxy=proxy,
+                client=client,
+                pot=use_pot,
+                no_cookies=not use_cookies
+            ) + [
+                "-4",
+                "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/b",
+                "--download-sections", f"*{start:.2f}-{end:.2f}",
+                "--force-keyframes-at-cuts",
+                "--merge-output-format", "mp4",
+                "-o", str(out_path),
+                url
+            ]
+            _run(cmd, f"segment download ({client})")
+            if out_path.exists() and out_path.stat().st_size > 10000:
+                print(f"   ✅ Segment downloaded successfully via {client}", flush=True)
+                return out_path
+        except Exception as e:
+            print(f"   ⚠️ {label} failed: {e}", flush=True)
+            last_err = e
+
+    raise RuntimeError(f"segment download failed all tiers. Last error: {last_err}")
 
 
 def download_audio(url, out_path, cookies=None, proxy=None):
@@ -129,7 +208,52 @@ def download_audio(url, out_path, cookies=None, proxy=None):
         _run(["ffmpeg", "-y", "-loglevel", "error", "-i", url, "-vn", "-ac", "1", "-ar", "16000",
               str(out_path)], "audio extract")
         return out_path
-    cmd = _ytdlp_base(cookies, proxy) + ["-f", "ba/b", "-x", "--audio-format", "m4a",
-                                         "-o", str(out_path.with_suffix(".%(ext)s")), url]
-    _run(cmd, "audio download")
-    return out_path.with_suffix(".m4a")
+
+    target_m4a = out_path.with_suffix(".m4a")
+    tmpl = str(out_path.with_suffix(".%(ext)s"))
+
+    # For Twitch or non-YouTube
+    if kind_of(url) != "youtube":
+        cmd = _ytdlp_base(cookies, proxy) + ["-f", "ba/b", "-x", "--audio-format", "m4a",
+                                             "-o", tmpl, url]
+        _run(cmd, "audio download")
+        return target_m4a
+
+    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts)
+    tiers = [
+        ("mweb", True, True, "Tier 1: mweb + PO Token/cookies"),
+        ("web", True, True, "Tier 1: web + PO Token/cookies"),
+        ("visionos", False, False, "Tier 2: visionos (no cookies)"),
+        ("ios", False, False, "Tier 2: ios (no cookies)"),
+        ("android_vr", False, False, "Tier 2: android_vr (no cookies)"),
+    ]
+
+    last_err = None
+    for client, use_cookies, use_pot, label in tiers:
+        try:
+            print(f"   🔄 Attempting audio download via {label}...", flush=True)
+            cmd = _ytdlp_base(
+                cookies=cookies if use_cookies else None,
+                proxy=proxy,
+                client=client,
+                pot=use_pot,
+                no_cookies=not use_cookies
+            ) + [
+                "-4",
+                "-f", "ba/b",
+                "-x", "--audio-format", "m4a",
+                "-o", tmpl,
+                url
+            ]
+            _run(cmd, f"audio download ({client})")
+            if target_m4a.exists() and target_m4a.stat().st_size > 1000:
+                print(f"   ✅ Audio downloaded successfully via {client}", flush=True)
+                return target_m4a
+            for cand in out_path.parent.glob(f"{out_path.stem}.*"):
+                if cand.is_file() and cand.stat().st_size > 1000:
+                    return cand
+        except Exception as e:
+            print(f"   ⚠️ {label} failed: {e}", flush=True)
+            last_err = e
+
+    raise RuntimeError(f"audio download failed all tiers. Last error: {last_err}")

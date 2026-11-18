@@ -23,13 +23,13 @@ OTHER_GAME_RE = re.compile(r"\bplaying\s+(?!gta|grand|the\s+new\s+gta)\w", re.I)
 NOT_GAMEPLAY_RE = re.compile(
     r"\b(news|leak(s|ed)?|trailer|countdown|count\s?down|everything\s+we\s+know|explained|theory|theories|"
     r"predictions?|review(s|ed)?|price|pre-?order|reaction\s+to\s+(the\s+)?trailer|why\s+gta|"
-    r"before\s+(gta|you\s+buy)|release\s+(date|time)|unlock\s+time|podcast|tier\s?list|ranking|"
+    r"before\s+(gta|the\s+game|you\s+buy)|stuff\s+before|at\s+\d+\s*(am|pm)|release\s+(date|time)|unlock\s+time|podcast|tier\s?list|ranking|"
     r"top\s+\d+|\d+\s+things|watch\s+this\s+first|how\s+to\s+(start|grow)|downloading|pre-?load|"
     r"info(s|rmation)?|setup|tour|should\s+\w+\s+play|talking|awards?|screenshots?|videos?\s+per\s+day|"
-    r"comparison|compared|soon|waiting|hype\s+train|unboxing|collector'?s|edition|pc\s+port|specs|requirements|map\s+size)\b", re.I)
+    r"comparison|compared|soon|waiting|hype\s+train|unboxing|collector'?s\s+edition|pc\s+port|specs|requirements|map\s+size)\b", re.I)
 GAMEPLAY_HINT_RE = re.compile(
     r"\b(gameplay|playthrough|walkthrough|let'?s\s+play|part\s*\d+|ep(isode)?\.?\s*\d+|#\d+|first\s+(time|hour|day|look)|"
-    r"day\s*1|live|stream|chaos|funny|moments|rampage|heist|chase|wanted|missions?|full\s+game|blind)\b", re.I)
+    r"day\s*1|live|stream|chaos|funny|moments|rampage|heist|chase|wanted|missions?|full\s+game|blind|early\s+access|drops)\b", re.I)
 
 # sp filters: CAMSBAgCEAE = sort by views + uploaded today + type video
 YT_SEARCHES = [

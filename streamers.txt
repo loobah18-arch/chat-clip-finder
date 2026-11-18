@@ -1,5 +1,6 @@
 # Creators to always check (one per line). Their new GTA 6 / game streams get picked first.
 # YouTube: the @handle.   Twitch: twitch:login
+twitch:ohnepixel
 twitch:kaicenat
 twitch:xqc
 twitch:tarik

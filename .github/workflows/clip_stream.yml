@@ -93,6 +93,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-roboto
 
+      - name: Configure YouTube Cookies & Proxy (If Available)
+        env:
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
+        run: |
+          if [ -n "${YOUTUBE_COOKIES:-}" ]; then
+            python3 -c "import os, base64; raw = os.environ.get('YOUTUBE_COOKIES', '').strip(); (open('youtube_cookies.txt', 'w', encoding='utf-8').write(base64.b64decode(raw).decode('utf-8') if ('# Netscape' not in raw and '\t' not in raw and raw) else raw)) if raw else None"
+            if [ -f youtube_cookies.txt ]; then
+              echo "🍪 Successfully decoded YOUTUBE_COOKIES to youtube_cookies.txt"
+            fi
+          fi
+
       - name: Download TwitchDownloaderCLI Linux-x64 (If Live VOD)
         if: ${{ inputs.vod_url != 'demo' && inputs.vod_url != '' }}
         run: |

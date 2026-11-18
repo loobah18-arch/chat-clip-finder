@@ -1,5 +1,7 @@
 # 🎬 The Chat Clip Finder
 
+[![Auto-Clip](https://github.com/loobah18-arch/chat-clip-finder/actions/workflows/auto_clip.yml/badge.svg)](https://github.com/loobah18-arch/chat-clip-finder/actions/workflows/auto_clip.yml) ← tap, then **Run workflow** to clip now
+
 > **Let chat find the best moments of a Twitch or YouTube stream, then turn them into ready-to-post Shorts, Reels and TikToks.**
 > Tuned for **GTA 6** streams and gameplay. Free, open-source, runs on GitHub Actions from your phone.
 
@@ -41,9 +43,25 @@ list in `streamers.txt` are always checked first. It remembers what it clipped i
 python3 auto_clips.py --list          # show what it would pick
 python3 auto_clips.py --count 2 --top 3
 ```
-The **Auto-Clip Top GTA 6 Streams** workflow runs this every 4 hours. Scheduled runs only upload if you
+The **Auto-Clip** workflow runs this daily at 4 PM ET. Scheduled runs only upload if you
 set the repo variable `AUTO_UPLOAD` to `true` (privacy from `AUTO_PRIVACY`, default private).
 ⚠️ Re-uploading other creators' streams can get copyright claims; credit is added, but permission is safest.
+
+### 🛡️ Algorithm protection (Candle Gate, same as auto-clipper-shorts)
+Before any upload the channel's last Short is checked live through the YouTube API:
+
+| Layer | Rule |
+|---|---|
+| 0 · 24h spacing | No upload within 24 h of the last one. ≤ 30 min left → waits inline. The pre-flight job skips the whole scheduled run before clipping, so no runner minutes are wasted. |
+| 1 · Early momentum | Last Short hit ≥ 2,000 views in its first 24 h → hold and let it ride. 1,700–1,999 → 1-hour timer, then re-check. |
+| 2 · Viral velocity | Last Short still doing ≥ 2,500 views/hr → hold until it stays below for 24 h. |
+
+One Short (the best clip) is uploaded per run; `upload_history.json` and `candle_gate_state.json` are
+committed back so the gates remember. Deferred uploads end cleanly (exit 2). `force_upload` skips the gate.
+
+### 🕓 Schedule
+**Auto-Clip** runs every day at **4:00 PM US Eastern** (DST-safe) and from the Run workflow button any time.
+Scheduled runs upload only when the repo variable `AUTO_UPLOAD` is `true`; `AUTO_GAME` changes the game (default `gta6`).
 
 ### Cloud runner
 Actions -> **Clip Stream to Shorts** -> Run workflow -> paste the link. Leave `upload_to_youtube` off to

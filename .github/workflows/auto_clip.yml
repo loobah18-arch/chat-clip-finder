@@ -1,10 +1,13 @@
 name: Auto-Clip Top Game Streams
 
-# Every 4 hours: find today's most-watched GTA 6 streams/videos that are not clipped yet,
-# cut the best moments into Shorts, keep them as an artifact, and (only if you turn it on) upload.
+# Daily at 4:00 PM US Eastern (New York), DST-safe: GitHub cron is UTC, so both
+# 20:00 UTC (summer, EDT) and 21:00 UTC (winter, EST) are scheduled and the
+# time guard lets only the one that is really 4 PM in New York through.
+# "Run workflow" (Actions tab, or the badge in the README) runs it any time.
 on:
   schedule:
-    - cron: '30 */4 * * *'
+    - cron: '0 20 * * *'
+    - cron: '0 21 * * *'
   workflow_dispatch:
     inputs:
       game:
@@ -24,13 +27,17 @@ on:
         type: boolean
         default: false
       upload_to_youtube:
-        description: 'Upload the Shorts to YouTube'
+        description: 'Upload the best Short to YouTube (Candle Gate still protects the channel)'
+        type: boolean
+        default: false
+      force_upload:
+        description: 'Skip the Candle Gate protection layers (not recommended)'
         type: boolean
         default: false
       privacy:
         description: 'YouTube privacy'
         type: choice
-        default: private
+        default: public
         options: [public, unlisted, private]
 
 concurrency:
@@ -38,19 +45,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  auto-clip:
+  preflight:
+    name: 🕓 4 PM ET guard + 🕯️ 24h spacing pre-flight (Layer 0)
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 45
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is it 4 PM in New York?
+        id: clock
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          OFF=$(TZ=America/New_York date +%z)
+          [ "$OFF" = "-0400" ] && WANT='0 20 * * *' || WANT='0 21 * * *'
+          echo "New York offset $OFF, this trigger: '${{ github.event.schedule }}', 4 PM trigger: '$WANT'"
+          if [ "${{ github.event.schedule }}" = "$WANT" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else
+            echo "Not the 4 PM ET trigger today, skipping."; echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: 24-hour upload spacing (skip the whole pipeline unless due)
+        id: gate
+        env:
+          # manual "Run workflow" clicks always proceed; the upload step's Candle Gate still protects uploads
+          PREFLIGHT_BYPASS: ${{ github.event_name != 'schedule' }}
+        run: |
+          if [ "${{ steps.clock.outputs.ok }}" != "true" ]; then echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          python3 preflight_gate.py
+
+  auto-clip:
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
     permissions:
-      contents: write   # to save state/processed.json so the next run picks new videos
+      contents: write   # saves state/processed.json, upload_history.json, candle_gate_state.json
     env:
       GAME: ${{ inputs.game || vars.AUTO_GAME || 'gta6' }}
       COUNT: ${{ inputs.count || '2' }}
       TOP: ${{ inputs.top || '3' }}
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
-      # scheduled runs upload only if you set the repo variable AUTO_UPLOAD to true
+      # scheduled runs upload only if the repo variable AUTO_UPLOAD is true
       DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
-      PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'private' }}
+      PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'public' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,7 +131,7 @@ jobs:
           [ -z "$URL" ] && URL="https://github.com/lay295/TwitchDownloader/releases/download/1.55.2/TwitchDownloaderCLI-1.55.2-Linux-x64.zip"
           curl -sL -o tdl.zip "$URL" && unzip -o -q tdl.zip && chmod +x TwitchDownloaderCLI || echo "TwitchDownloader unavailable"
 
-      - name: Find top GTA 6 streams + make Shorts
+      - name: Find top streams + make Shorts
         env:
           YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
@@ -102,25 +139,9 @@ jobs:
         run: |
           ARGS=(--game "$GAME" --count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --tdl ./TwitchDownloaderCLI --out clips)
           [ "${{ inputs.list_only }}" = "true" ] && ARGS+=(--list)
-          set +e
-          python3 auto_clips.py "${ARGS[@]}"
-          RC=$?
+          python3 auto_clips.py "${ARGS[@]}" || echo "No Shorts this time"
           rm -f youtube_cookies.txt
           ls -lhR clips/ 2>/dev/null | head -50
-          [ "${{ inputs.list_only }}" = "true" ] && exit 0
-          # exit 1 only means "no Shorts this time"; don't fail the schedule for that
-          exit 0
-
-      - name: Remember what was clipped
-        if: ${{ !inputs.list_only }}
-        run: |
-          if [ -n "$(git status --porcelain state/)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state/processed.json
-            git commit -m "chore: auto-clip state [skip ci]"
-            git pull --rebase -q && git push -q || echo "state push failed (will re-check next run)"
-          fi
 
       - name: Upload Shorts as artifact
         if: ${{ hashFiles('clips/**/*.mp4') != '' }}
@@ -133,10 +154,27 @@ jobs:
             clips/**/moments.json
           retention-days: 7
 
-      - name: Publish to YouTube Shorts
-        if: ${{ env.DO_UPLOAD == 'true' && hashFiles('clips/posts.json') != '' }}
+      - name: Publish best Short (Candle Gate protected)
+        if: ${{ env.DO_UPLOAD == 'true' && hashFiles('clips/posts.json') != '' && !inputs.list_only }}
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-        run: python3 youtube_uploader.py --posts clips/posts.json --privacy "$PRIVACY"
+        run: |
+          EXTRA=()
+          [ "${{ inputs.force_upload }}" = "true" ] && EXTRA+=(--force)
+          RC=0
+          python3 youtube_uploader.py --posts clips/posts.json --max 1 --privacy "$PRIVACY" "${EXTRA[@]}" || RC=$?
+          if [ "$RC" -eq 2 ]; then echo "⏸️ Upload deferred by the Candle Gate (protecting the last Short)."
+          elif [ "$RC" -ne 0 ]; then exit $RC; fi
+
+      - name: Save state (clipped videos, upload history, candle gate)
+        if: ${{ always() && !inputs.list_only }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/processed.json upload_history.json candle_gate_state.json 2>/dev/null || true
+          if git diff --cached --quiet; then echo "No state changes"; exit 0; fi
+          git commit -q -m "🤖 auto-clip state [skip ci]"
+          git checkout -- . 2>/dev/null || true
+          git pull --rebase -q && git push -q || echo "state push failed (will re-check next run)"

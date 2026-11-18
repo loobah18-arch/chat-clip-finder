@@ -21,4 +21,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run test suite
-        run: python3 test_chat_clips.py
+        run: |
+          pip install -q requests
+          python3 test_chat_clips.py
+          python3 test_candle_gate.py
+          python3 test_preflight_gate.py
+          python3 test_uploader_gate.py

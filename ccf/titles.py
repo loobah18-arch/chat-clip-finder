@@ -93,8 +93,9 @@ def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None)
         base = f"{base} ({_tc(phrase)})"
     emoji = {"laugh": " 💀", "hype": " 🔥", "shock": " 😳", "game": " 🚨"}.get(kind, "")
     title = (base + emoji)[:90]
-    credit_line = f"Credit: {who} (go follow!)" if who else ""
+    handle = who.lstrip("@") if who else ""
+    credit_line = f"Credit: @{handle} (go follow!)" if handle else ""
     description = "\n".join(x for x in [title, credit_line, "", " ".join(tags)] if x is not None)
     return {"hook": hook, "title": title, "description": description,
-            "tags": [t.lstrip("#") for t in tags], "credit": f"@{who}" if who else "",
+            "tags": [t.lstrip("#") for t in tags], "credit": f"@{handle}" if handle else "",
             "ig_comment": ig_comment}

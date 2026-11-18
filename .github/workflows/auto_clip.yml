@@ -99,7 +99,7 @@ jobs:
       - name: Install FFmpeg + Python packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-noto-color-emoji
           pip install -U yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
           pip install -r requirements.txt
 

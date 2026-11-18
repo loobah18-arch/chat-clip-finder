@@ -206,9 +206,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Layer 2: Comment Text
         ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 102})}}"
                   f"{{\\fs40\\b1\\c&H00111111&}}{text}")
-        # Layer 2: Reply & Likes
-        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 162})}}"
-                  f"{{\\fs26\\b0\\c&H00777777&}}Reply{{\\pos({card_x + 790},{card_y + 162})\\an3}}❤️ {likes}")
+        # Layer 2: Reply and Likes (separate events for clean layout)
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 158})}}"
+                  f"{{\\fs24\\b0\\c&H00777777&}}Reply")
+        ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 720},{card_y + 158})}}"
+                  f"{{\\fs26\\c&H002424ED&}}♥ {{\\fs24\\b0\\c&H00777777&}}{likes}")
 
     credit = _clean(credit or "")
     if credit:

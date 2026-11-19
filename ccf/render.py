@@ -116,7 +116,7 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
         card_h = sticker_info.get("card_height", 210)
         margin = sticker_info.get("margin", 50)
         sticker_y = int(cap_y - (card_h // 2) - margin)
-        graph += (f";[1:v]format=rgba,fade=t=in:st=0:d=0.25:alpha=1[stk];"
+        graph += (f";[1:v]format=rgba[stk];"
                   f"[{last}][stk]overlay=(W-w)/2:{sticker_y}:eof_action=repeat[base_stk]")
         last = "base_stk"
 

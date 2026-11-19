@@ -203,8 +203,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ev.append(f"Dialogue: 1,{_ts(0)},{_ts(duration)},Card,,0,0,0,,{{\\pos({card_x + 45},{card_y + 50})\\p1\\c&H0040342D&}}"
                   f"m 0 20 b 0 9 9 0 20 0 b 31 0 40 9 40 20 b 40 31 31 40 20 40 b 9 40 0 31 0 20\\p0")
         # Layer 2: Username and Timestamp
+        clean_uname = uname.lstrip('@')
         ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 110},{card_y + 42})}}"
-                  f"{{\\fs32\\b1\\c&H00333333&}}@{uname} {{\\fs26\\b0\\c&H00888888&}}· {time_ago}")
+                  f"{{\\fs32\\b1\\c&H00333333&}}{clean_uname} {{\\fs26\\b0\\c&H00888888&}}· {time_ago}")
         # Layer 2: Comment Text
         ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 40},{card_y + 102})}}"
                   f"{{\\fs40\\b1\\c&H00111111&}}{text}")

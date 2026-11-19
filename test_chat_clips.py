@@ -204,7 +204,7 @@ class TestChatClipFinder(unittest.TestCase):
             build_ass(out, [], 10.0, ig_comment=ig_comment, style="ig-comment", credit="@ohnePixel")
             txt = out.read_text(encoding="utf-8")
             self.assertIn("bro was NOT ready for GTA 6", txt)
-            self.assertIn("@vicecity_daily", txt)
+            self.assertIn("vicecity_daily", txt)
             self.assertIn("38.4K", txt)
             self.assertIn("@ohnePixel", txt)
             # Ensure word-by-word subtitles are omitted
@@ -219,6 +219,29 @@ class TestChatClipFinder(unittest.TestCase):
             self.assertIn("[ 02 · THE SETUP ]", txt_50)
             self.assertIn("[ 03 · THE CLIMAX ]", txt_50)
             self.assertIn("[ 04 · THE PAYOFF ]", txt_50)
+
+    def test_generate_instagram_sticker(self):
+        from ccf.sticker import generate_instagram_sticker
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_png = Path(tmpdir) / "sticker.png"
+            info = generate_instagram_sticker(
+                username="@vicecity_daily",
+                time_ago="2h",
+                text="bro was NOT ready for GTA 6 💀💀",
+                likes="38.4K",
+                out_path=out_png,
+                is_verified=True,
+                width=940
+            )
+            self.assertTrue(out_png.exists())
+            self.assertGreater(out_png.stat().st_size, 1000)
+            self.assertEqual(info["card_width"], 940)
+            self.assertGreater(info["card_height"], 180)
+            self.assertEqual(info["margin"], 50)
+            with Image.open(out_png) as im:
+                self.assertEqual(im.mode, "RGBA")
+                self.assertEqual(im.size, (info["width"], info["height"]))
 
 
     def test_discover_keeps_only_gta6_gameplay(self):

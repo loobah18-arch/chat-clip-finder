@@ -149,6 +149,7 @@ def make(rank, kind, phrase, streamer="", game="none", fixed_hook="", seed=None)
         "username": rnd.choice(IG_USERNAMES),
         "time": rnd.choice(IG_TIMES),
         "likes": rnd.choice(IG_LIKES),
+        "verified": rnd.random() < 0.35,
     }
     who = streamer.strip()
     clean_handle = who.lstrip("@") if who else ""

@@ -210,6 +210,16 @@ class TestChatClipFinder(unittest.TestCase):
             # Ensure word-by-word subtitles are omitted
             self.assertNotIn("Cap", txt.split("[Events]")[1])
 
+            # When duration >= 25s, verify woo's clips stage HUD badges are present
+            out_50 = Path(tmpdir) / "ig_50.ass"
+            build_ass(out_50, [], 50.0, ig_comment=ig_comment, style="ig-comment", credit="@ohnePixel")
+            txt_50 = out_50.read_text(encoding="utf-8")
+            self.assertIn("Style: Badge", txt_50)
+            self.assertIn("[ 01 · THE HOOK ]", txt_50)
+            self.assertIn("[ 02 · THE SETUP ]", txt_50)
+            self.assertIn("[ 03 · THE CLIMAX ]", txt_50)
+            self.assertIn("[ 04 · THE PAYOFF ]", txt_50)
+
 
     def test_discover_keeps_only_gta6_gameplay(self):
         from ccf.discover import is_gta6_gameplay as g

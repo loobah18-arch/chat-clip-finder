@@ -74,17 +74,18 @@ def group_words(words, max_words=3, max_chars=16, max_gap=0.45):
     return groups
 
 
-def snap_speech_boundaries(words, raw_duration, min_duration=15.0, tail_window=7.0):
+def snap_speech_boundaries(words, raw_duration, min_duration=40.0, tail_window=8.0):
     """Find a natural sentence ending or speech pause within the tail of the clip.
     Avoids cutting the streamer off mid-sentence or mid-word.
     Returns snapped_duration (float).
     """
-    if not words or raw_duration <= min_duration:
+    effective_min = min(float(min_duration), float(raw_duration))
+    if not words or raw_duration <= effective_min:
         return float(raw_duration)
 
     last_word = words[-1]
     last_speech_end = float(last_word.get("e", raw_duration))
-    tail_start = max(min_duration, raw_duration - tail_window)
+    tail_start = max(effective_min, raw_duration - tail_window)
     tail_words = [w for w in words if float(w.get("s", 0)) >= tail_start]
 
     best_snap = None
@@ -103,12 +104,12 @@ def snap_speech_boundaries(words, raw_duration, min_duration=15.0, tail_window=7
             if next_s - curr_e >= 0.4:
                 best_snap = curr_e + 0.25
 
-    # 3. Speech completely ceased before clip end (avoid trailing dead silence)
-    if best_snap is None and last_speech_end < raw_duration - 0.6:
+    # 3. Speech completely ceased within the tail window (avoid cutting when speech stopped early during laughing/gameplay)
+    if best_snap is None and last_speech_end >= tail_start and last_speech_end < raw_duration - 0.6:
         best_snap = last_speech_end + 0.4
 
     if best_snap is not None:
-        snapped = max(min_duration, min(raw_duration, best_snap))
+        snapped = max(effective_min, min(raw_duration, best_snap))
         return round(float(snapped), 2)
 
     return float(raw_duration)
@@ -154,6 +155,7 @@ Style: Hook,{hook_font},64,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,
 Style: Credit,{font},36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,3,1,8,40,40,{credit_v},1
 Style: Card,Montserrat Black,10,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 Style: IGText,Montserrat Black,38,&H00000000,&H00000000,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+Style: Badge,{font},32,&H0000E6FF,&H00000000,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,3,10,0,7,50,50,50,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -211,6 +213,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                   f"{{\\fs24\\b0\\c&H00777777&}}Reply")
         ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 720},{card_y + 158})}}"
                   f"{{\\fs26\\c&H002424ED&}}♥ {{\\fs24\\b0\\c&H00777777&}}{likes}")
+
+    # Story-arc stage HUD badges (woo's clips benchmark format: HOOK -> SETUP -> CLIMAX -> PAYOFF)
+    if duration >= 25.0:
+        t_hook = min(4.5, duration * 0.10)
+        t_setup = duration * 0.52
+        t_climax = duration * 0.78
+        stages = [
+            (0.0, t_hook, "[ 01 · THE HOOK ]"),
+            (t_hook, t_setup, "[ 02 · THE SETUP ]"),
+            (t_setup, t_climax, "[ 03 · THE CLIMAX ]"),
+            (t_climax, duration, "[ 04 · THE PAYOFF ]"),
+        ]
+        for s_t, e_t, label in stages:
+            ev.append(f"Dialogue: 3,{_ts(s_t)},{_ts(e_t)},Badge,,0,0,0,,  {label}  ")
 
     credit = _clean(credit or "")
     if credit:

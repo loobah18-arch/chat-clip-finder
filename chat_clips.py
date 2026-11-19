@@ -89,6 +89,7 @@ def parse_args(argv=None):
     p.add_argument("--hook", default="")
     p.add_argument("--credit", default="")
     p.add_argument("--out", default="clips")
+    p.add_argument("--min-height", type=int, default=720, help="Minimum source video height (default 720)")
     p.add_argument("--tdl")
     p.add_argument("--dry-run", action="store_true")
     a, unknown = p.parse_known_args(argv)
@@ -270,9 +271,15 @@ def main(argv=None):
         else:
             sources.download_section(a.url, m["start"], m["end"], piece, a.cookies, a.proxy, tdl)
 
+        # Probe piece resolution and enforce minimum quality (>= 720p)
+        src_w, src_h, _ = render.probe(piece)
+        if a.min_height and src_h < a.min_height:
+            print(f"   ! skipping candidate: resolution {src_w}x{src_h} is below minimum {a.min_height}p", flush=True)
+            piece.unlink(missing_ok=True)
+            sys.exit(3)
+
         # Early check for webcam if required to avoid wasted whisper and render time
         if a.require_cam:
-            src_w, src_h, _ = render.probe(piece)
             layout, cam = render.choose_layout(a.layout, a.cam, piece, src_w, src_h, require_cam=True)
             if not layout:
                 print(f"   ! skipping candidate: no webcam detected (require-cam active)", flush=True)

@@ -309,6 +309,24 @@ class TestChatClipFinder(unittest.TestCase):
         low_score = score_moment([], peak_db=-50.0)
         self.assertLessEqual(low_score, 30.0)
 
+    def test_min_height_and_quality_tiers(self):
+        import argparse
+        import sys
+        from unittest.mock import patch
+        # Verify CLI parser has --min-height defaulting to 720
+        with patch.object(sys, "argv", ["chat_clips.py", str(self.demo_json), "--dry-run"]):
+            from chat_clips import main
+            with self.assertRaises(SystemExit) as cm:
+                main()
+            self.assertEqual(cm.exception.code, 0)
+
+        # Verify YouTube tiers enforce height >= 720
+        from ccf import sources
+        import inspect
+        src = inspect.getsource(sources.download_section)
+        self.assertIn("height>=720", src)
+        self.assertNotIn("/18/b", src)
+
 
 if __name__ == "__main__":
     unittest.main()

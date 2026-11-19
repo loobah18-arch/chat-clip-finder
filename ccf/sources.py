@@ -168,19 +168,20 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
 
     if k != "youtube":
         cmd = _ytdlp_base(cookies, proxy) + [
-            "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/b",
+            "-f", "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]/bv*[height<=1080]+ba/b",
             "--download-sections", f"*{start:.2f}-{end:.2f}", "--force-keyframes-at-cuts",
             "--merge-output-format", "mp4", "-o", str(out_path), url]
         _run(cmd, "segment download")
         return out_path
 
-    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts Tier 3c)
+    # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p)
+    fmt_hd = "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]"
     tiers = [
-        ("android,mweb,web", "bestvideo[height<=720]+bestaudio/best[height<=720]/22/18/b", "Tier 3c: 720p/progressive native bypass"),
-        ("web,mweb", "bv*[height<=1080][fps<=60]+ba/best[height<=1080]/18/b", "Tier 1: web,mweb + bgutil/cookies"),
-        ("ios", "best[height<=1080]/18/b", "Tier 2: ios HLS (no cookies)"),
-        ("android_vr", "best[height<=1080]/18/b", "Tier 2: android_vr (no cookies)"),
-        ("android", "22/18/b", "Tier 2: android progressive"),
+        ("web,mweb", fmt_hd, "Tier 1: 1080p/720p web,mweb + bgutil/cookies"),
+        ("android,mweb,web", f"{fmt_hd}/22", "Tier 2: 1080p/720p android,mweb,web native bypass"),
+        ("ios", fmt_hd, "Tier 3: 1080p/720p ios HLS (no cookies)"),
+        ("android_vr", fmt_hd, "Tier 4: 1080p/720p android_vr (no cookies)"),
+        ("android", "22", "Tier 5: 720p android progressive (format 22)"),
     ]
 
     last_err = None

@@ -33,7 +33,11 @@ on:
       force_upload:
         description: 'Skip the Candle Gate protection layers (not recommended)'
         type: boolean
-        default: true
+        default: false
+      from_timer:
+        description: 'Internal: dispatched by exact-due timer (keeps the 24h spacing gate on)'
+        type: boolean
+        default: false
       privacy:
         description: 'YouTube privacy'
         type: choice
@@ -51,6 +55,8 @@ jobs:
     timeout-minutes: 45
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
+      remaining_seconds: ${{ steps.gate.outputs.remaining_seconds }}
+      due_at: ${{ steps.gate.outputs.due_at }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,11 +73,45 @@ jobs:
       - name: 24-hour upload spacing (skip the whole pipeline unless due)
         id: gate
         env:
-          # manual "Run workflow" clicks always proceed; the upload step's Candle Gate still protects uploads
-          PREFLIGHT_BYPASS: ${{ github.event_name != 'schedule' }}
+          # manual "Run workflow" clicks always proceed; scheduled runs or exact-due timer check the 24h spacing
+          PREFLIGHT_BYPASS: ${{ github.event_name != 'schedule' && !inputs.from_timer }}
         run: |
           if [ "${{ steps.clock.outputs.ok }}" != "true" ]; then echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           python3 preflight_gate.py
+
+  # When the 24h gate holds, calculate time remaining, sleep until exact due time,
+  # and automatically restart/dispatch the pipeline instead of wasting idle time.
+  exact_due_timer:
+    name: ⏰ Trigger Pipeline Exactly When 24h Is Up
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'false' && needs.preflight.outputs.remaining_seconds != '' && fromJSON(needs.preflight.outputs.remaining_seconds) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      actions: write
+    concurrency:
+      group: auto-clip-exact-due-timer
+      cancel-in-progress: true
+    steps:
+      - name: ⏳ Sleep until due (${{ needs.preflight.outputs.due_at }})
+        run: |
+          REM=${{ needs.preflight.outputs.remaining_seconds }}
+          WAIT=$(( REM + 60 ))
+          MAX_SLEEP=20400
+          if [ "$WAIT" -gt "$MAX_SLEEP" ]; then
+            echo "Remaining wait (${WAIT}s) exceeds 5.6h runner cap. Sleeping ${MAX_SLEEP}s then chaining..."
+            sleep "$MAX_SLEEP"
+          else
+            echo "Sleeping ${WAIT}s until ${{ needs.preflight.outputs.due_at }} (+60s margin)..."
+            [ "$WAIT" -gt 0 ] && sleep "$WAIT" || true
+          fi
+      - name: 🚀 Dispatch the pipeline now
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run auto_clip.yml \
+            --repo "${{ github.repository }}" --ref "${{ github.ref_name }}" \
+            -f upload_to_youtube=true -f from_timer=true
 
   auto-clip:
     needs: preflight
@@ -85,8 +125,8 @@ jobs:
       COUNT: ${{ inputs.count || '1' }}
       TOP: ${{ inputs.top || '1' }}
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
-      # scheduled runs upload only if the repo variable AUTO_UPLOAD is true
-      DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
+      # scheduled runs upload only if repo variable AUTO_UPLOAD is true; timer and manual dispatch upload when upload_to_youtube or from_timer is true
+      DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && (inputs.upload_to_youtube || inputs.from_timer)) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
       PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'public' }}
     steps:
       - uses: actions/checkout@v4

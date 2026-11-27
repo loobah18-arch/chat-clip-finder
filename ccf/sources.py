@@ -148,6 +148,25 @@ def video_info(url, cookies=None, proxy=None):
     return {"title": "", "channel": "", "duration": 0.0, "was_live": False}
 
 
+def _find_media_file(path: Path) -> Optional[Path]:
+    path = Path(path)
+    if path.is_file() and path.stat().st_size > 10000:
+        return path
+    base = str(path.with_suffix(""))
+    for ext in [".mp4", ".webm", ".mkv"]:
+        cand = Path(base + ext)
+        if cand.is_file() and cand.stat().st_size > 10000:
+            if cand != path:
+                cand.rename(path)
+                return path
+            return cand
+        cand2 = Path(str(path) + ext)
+        if cand2.is_file() and cand2.stat().st_size > 10000:
+            cand2.rename(path)
+            return path
+    return None
+
+
 def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"):
     """Download only [start, end] seconds of the video, 1080p max."""
     from .timefmt import hms
@@ -197,7 +216,7 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
                 cookies=cookies if use_cookies else None,
                 proxy=proxy,
                 client=client,
-                pot=use_cookies,
+                pot=True,
                 no_cookies=not use_cookies
             ) + [
                 "-4",
@@ -210,9 +229,10 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
                 url
             ]
             _run(cmd, f"segment download ({client})")
-            if out_path.exists() and out_path.stat().st_size > 10000:
+            found = _find_media_file(out_path)
+            if found:
                 print(f"   ✅ Segment downloaded successfully via {client}", flush=True)
-                return out_path
+                return found
         except Exception as e:
             print(f"   ⚠️ {label} failed: {e}", flush=True)
             last_err = e

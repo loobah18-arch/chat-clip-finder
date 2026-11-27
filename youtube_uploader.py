@@ -37,7 +37,10 @@ def youtube_client():
     return build("youtube", "v3", credentials=Credentials(token=get_access_token()))
 
 
-def record_upload(video_id, title, video_path, privacy, source_url="", status="uploaded"):
+build_youtube_client = youtube_client
+
+
+def record_upload(video_id, title, video_path, privacy, source_url="", status="uploaded", mode="", layout=""):
     try:
         records = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else []
     except Exception:
@@ -45,6 +48,7 @@ def record_upload(video_id, title, video_path, privacy, source_url="", status="u
     records.append({
         "video_id": video_id, "title": title, "url": f"https://youtube.com/shorts/{video_id}",
         "source_url": source_url, "video_path": str(video_path), "privacy": privacy,
+        "mode": mode, "layout": layout,
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "status": status,
     })
     HISTORY_FILE.write_text(json.dumps(records[-200:], indent=2, ensure_ascii=False), encoding="utf-8")
@@ -61,7 +65,7 @@ def run_timer(seconds, interval=600, sleep_fn=time.sleep):
 
 
 def check_candle_gate(force=False, client=None, auto_timer=True, gate=None, sleep_fn=time.sleep):
-    """(can_upload, message). Fail-open on errors, like the other repos."""
+    """(can_upload, message). Enforces local Layer 0 spacing even if YouTube API is unreachable."""
     if force:
         return True, "Upload forced by user override (--force)."
     gate = gate or CandleGate()
@@ -69,7 +73,15 @@ def check_candle_gate(force=False, client=None, auto_timer=True, gate=None, slee
         try:
             client = youtube_client()
         except Exception as e:
-            return True, f"Could not reach YouTube for the gate ({e}); clearance granted"
+            # Always enforce local Layer 0 24h spacing before failing open when YouTube API is unavailable
+            try:
+                from preflight_gate import decide
+                local = decide(history_path=HISTORY_FILE, max_inline_wait_hours=0.0)
+                if not local.get("proceed", True):
+                    return False, f"[Layer 0 (Local Fallback)] {local.get('reason')}"
+            except Exception:
+                pass
+            return True, f"Could not reach YouTube for the gate ({e}); Layer 0 local clearance granted"
     result = gate.evaluate_live_channel(client)
     ev = result.get("candle_evaluation", {})
     if not ev:
@@ -91,9 +103,9 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googlea
 def get_access_token():
     """Exchange OAuth credentials for a fresh access token."""
     creds_file = os.path.expanduser("~/.youtube_credentials.json")
-    client_id = os.environ.get("CLIENT_ID")
-    client_secret = os.environ.get("CLIENT_SECRET")
-    refresh_token = os.environ.get("REFRESH_TOKEN")
+    client_id = os.environ.get("CLIENT_ID") or os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("CLIENT_SECRET") or os.environ.get("YOUTUBE_CLIENT_SECRET")
+    refresh_token = os.environ.get("REFRESH_TOKEN") or os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
     if not (client_id and client_secret and refresh_token) and os.path.exists(creds_file):
         try:
@@ -203,7 +215,12 @@ def main():
             path = Path(p["file"])
             try:
                 vid = upload_short(path, p["title"], p.get("description", ""), p.get("tags"), args.privacy)
-                record_upload(vid, p["title"], path, args.privacy, p.get("source_url", ""))
+                record_upload(
+                    vid, p["title"], path, args.privacy,
+                    p.get("source_url", ""),
+                    mode=p.get("mode", ""),
+                    layout=p.get("layout", ""),
+                )
                 uploaded += 1
             except Exception as e:  # try the next clip if one fails
                 failed += 1

@@ -27,9 +27,9 @@ Finding moments:
     --skip-start / --skip-end <s>  Ignore "Starting soon" / ending screen (default 120 / 60)
 
 Making the Short:
-    --layout <auto|stack|gameplay|blur|crop>   (default auto: stack if a webcam is found, else gameplay)
+    --layout <auto|stack|viceprint|gameplay|blur|crop>   (default stack; viceprint = unbranded 1:1 on blur)
     --cam <auto|top-left|top-right|bottom-left|bottom-right>   Webcam position (default auto-detect)
-    --captions <on|off>       Word-by-word captions with Whisper (default on)
+    --captions <ig-comment|word|viceprint|on|off>   Caption mode
     --whisper-model <name>    tiny / base / small / medium (default small)
     --lang <code>             Spoken language, e.g. en, hi (default: auto-detect)
     --hook <text>             Fixed hook title for every clip (default: picked per clip from chat)
@@ -79,11 +79,11 @@ def parse_args(argv=None):
     p.add_argument("--bucket", type=int, default=10)
     p.add_argument("--skip-start", type=int, default=120)
     p.add_argument("--skip-end", type=int, default=60)
-    p.add_argument("--layout", default="stack", choices=["auto", "stack", "gameplay", "blur", "crop"])
+    p.add_argument("--layout", default="stack", choices=["auto", "stack", "gameplay", "viceprint", "blur", "crop"])
     p.add_argument("--require-cam", action="store_true", default=True, help="skip candidate if no webcam detected")
     p.add_argument("--no-require-cam", dest="require_cam", action="store_false")
     p.add_argument("--cam", default="auto", choices=["auto", "top-left", "top-right", "bottom-left", "bottom-right"])
-    p.add_argument("--captions", default="ig-comment", choices=["ig-comment", "word", "on", "off"])
+    p.add_argument("--captions", default="ig-comment", choices=["ig-comment", "word", "viceprint", "on", "off"])
     p.add_argument("--whisper-model", default="small")
     p.add_argument("--lang")
     p.add_argument("--hook", default="")
@@ -279,6 +279,9 @@ def main(argv=None):
             sys.exit(3)
 
         # Early check for webcam if required to avoid wasted whisper and render time
+        if a.layout == "viceprint":
+            a.require_cam = False
+
         if a.require_cam:
             layout, cam = render.choose_layout(a.layout, a.cam, piece, src_w, src_h, require_cam=True)
             if not layout:
@@ -303,12 +306,21 @@ def main(argv=None):
         coherence = chatmod.score_moment(words, peak_db, snapped_dur)
         print(f"   🎯 Highlight accuracy & coherence score: {coherence}/100", flush=True)
 
-        caption_style = "word" if a.captions == "word" else ("off" if a.captions == "off" else "ig-comment")
+        if a.captions == "viceprint" or a.layout == "viceprint":
+            caption_style = "viceprint"
+        elif a.captions == "word":
+            caption_style = "word"
+        elif a.captions == "off":
+            caption_style = "off"
+        else:
+            caption_style = "ig-comment"
+
         ig_comment = m.get("ig_comment")
         if caption_style == "ig-comment" and ig_comment:
             print(f"   💬 Instagram comment sticker: \"{ig_comment['text']}\" (@{ig_comment['username']})", flush=True)
 
-        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"],
+        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"],
+                          "" if caption_style == "viceprint" else m["credit"],
                           require_cam=a.require_cam, duration=snapped_dur,
                           ig_comment=ig_comment, caption_style=caption_style)
         piece.unlink(missing_ok=True)
@@ -317,7 +329,9 @@ def main(argv=None):
             sys.exit(3)
         print(f"   ✅ {out_path}  ({r['layout']} layout, {len(words)} caption words)")
         posts.append({"file": str(out_path), "title": m["title"], "description": m["description"],
-                      "tags": m["tags"], "layout": r["layout"], "coherence_score": coherence,
+                      "tags": m["tags"], "layout": r["layout"],
+                      "mode": "viceprint" if r["layout"] == "viceprint" else "stream",
+                      "coherence_score": coherence,
                       "audio_peak_db": round(peak_db, 1), "snapped_duration": snapped_dur})
 
     with open(out_dir / "posts.json", "w", encoding="utf-8") as f:

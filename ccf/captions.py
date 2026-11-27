@@ -184,6 +184,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if hook:
             ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
                       r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
+    elif style == "viceprint":
+        # Viceprint formula: unbranded minimalist layout with kinetic 1-2 word popping captions
+        pos = rf"\pos(540,{caption_y})"
+        groups = group_words(words, max_words=2, max_chars=14)
+        for gi, g in enumerate(groups):
+            nxt = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else duration
+            g_end = min(duration, nxt, g[-1]["e"] + 0.25)
+            for i, w in enumerate(g):
+                s = w["s"]
+                e = g[i + 1]["s"] if i + 1 < len(g) else g_end
+                if e - s < 0.05:
+                    continue
+                parts = []
+                for j, x in enumerate(g):
+                    if j == i:
+                        parts.append(r"{\c" + HIGHLIGHT + r"\fscx115\fscy115}" + x["w"] + r"{\c" + WHITE + r"\fscx100\fscy100}")
+                    else:
+                        parts.append(x["w"])
+                pop = r"{\fscx90\fscy90\t(0,80,\fscx100\fscy100)}" if i == 0 else ""
+                ev.append(f"Dialogue: 1,{_ts(s)},{_ts(e)},Cap,,0,0,0,,{{{pos}}}{pop}{' '.join(parts)}")
+        hook = _clean(hook or "")
+        if hook:
+            ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
+                      r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
     elif style == "ig-comment" and ig_comment:
         card_w, card_h = 900, 220
         card_x = (1080 - card_w) // 2  # 90
@@ -215,8 +239,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ev.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},IGText,,0,0,0,,{{\\pos({card_x + 720},{card_y + 158})}}"
                   f"{{\\fs26\\c&H002424ED&}}♥ {{\\fs24\\b0\\c&H00777777&}}{likes}")
 
-    # Story-arc stage HUD badges (woo's clips benchmark format: HOOK -> SETUP -> CLIMAX -> PAYOFF)
-    if duration >= 25.0:
+    # Story-arc stage HUD badges (woo's clips benchmark format for stream stack clips)
+    if duration >= 25.0 and style != "viceprint":
         t_hook = min(4.5, duration * 0.10)
         t_setup = duration * 0.52
         t_climax = duration * 0.78
@@ -230,7 +254,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ev.append(f"Dialogue: 3,{_ts(s_t)},{_ts(e_t)},Badge,,0,0,0,,  {label}  ")
 
     credit = _clean(credit or "")
-    if credit:
+    if credit and style != "viceprint":
         ev.append(f"Dialogue: 0,{_ts(0)},{_ts(duration)},Credit,,0,0,0,,{{\\fad(200,0)\\alpha&H30&}}{credit}")
     Path(out_path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
     return out_path

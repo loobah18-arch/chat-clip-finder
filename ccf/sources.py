@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 YT_RE = re.compile(r"(youtube\.com|youtu\.be)/", re.I)
 TWITCH_RE = re.compile(r"(twitch\.tv/videos/|^\d{6,}$)", re.I)
@@ -44,51 +45,52 @@ def find_cookies(explicit=None):
 def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=False):
     exe = shutil.which("yt-dlp")
     cmd = [exe] if exe else [sys.executable, "-m", "yt_dlp"]
-    cmd += ["--no-warnings", "--no-playlist", "--retries", "3", "--fragment-retries", "5", "--socket-timeout", "45"]
+    cmd += ["-v", "--no-warnings", "--no-playlist", "--retries", "3", "--fragment-retries", "5", "--socket-timeout", "45"]
     if shutil.which("node"):
         cmd += ["--js-runtimes", "node", "--remote-components", "ejs:github"]
+
+    if client:
+        cmd += ["--extractor-args", f"youtube:player_client={client}"]
+
+    is_web_client = "web" in (client or "") or client is None
+    po_token = os.environ.get("YT_PO_TOKEN")
+    visitor_data = os.environ.get("YT_VISITOR_DATA")
+    if pot and is_web_client:
+        if po_token and visitor_data:
+            cmd += [
+                "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
+                "--extractor-args", f"youtube:visitor_data={visitor_data}",
+            ]
+        else:
+            bgutil_url = os.environ.get("BGUTIL_BASE_URL", "http://127.0.0.1:4416")
+            cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
 
     if not no_cookies:
         cookies_file = find_cookies(cookies)
         if cookies_file:
             cmd += ["--cookies", cookies_file]
+    else:
+        cmd += ["--no-cookies"]
 
     proxy = proxy or os.environ.get("YOUTUBE_PROXY")
     if proxy:
         cmd += ["--proxy", proxy]
 
-    po_token = os.environ.get("YT_PO_TOKEN")
-    visitor_data = os.environ.get("YT_VISITOR_DATA")
-    if pot and po_token and visitor_data:
-        cmd += [
-            "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
-            "--extractor-args", f"youtube:visitor_data={visitor_data}",
-        ]
-
-    # Check for bgutil POT provider on localhost:4416
-    try:
-        import urllib.request
-        with urllib.request.urlopen("http://127.0.0.1:4416/ping", timeout=0.5) as r:
-            if r.status == 200:
-                cmd += ["--extractor-args", "youtubepot-provider:url=http://127.0.0.1:4416"]
-    except Exception:
-        pass
-
-    if client:
-        cmd += ["--extractor-args", f"youtube:player_client={client}"]
-
     return cmd
 
 
 def _run(cmd, what, timeout=300):
-    print(f"   $ {' '.join(c if ' ' not in c else repr(c) for c in cmd[:3])} ... ({what})", flush=True)
+    logged_cmd = [c if not c.startswith("--cookies") else "--cookies [REDACTED]" for c in cmd]
+    print(f"   $ {' '.join(logged_cmd)} ... ({what})", flush=True)
     try:
-        res = subprocess.run(cmd, timeout=timeout)
+        res = subprocess.run(cmd, timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{what} timed out after {timeout}s.")
     if res.returncode != 0:
-        raise RuntimeError(f"{what} failed (exit {res.returncode}). For YouTube, refresh your cookies "
-                           f"(export them again while logged in) or set a proxy.")
+        err_lines = [line for line in (res.stdout or "").splitlines() if line.strip()]
+        err_msg = next((line for line in err_lines if "ERROR:" in line), err_lines[-1] if err_lines else f"exit {res.returncode}")
+        print(f"   ❌ Output snippet from failed {what} (exit {res.returncode}):\n      {err_msg}", flush=True)
+        raise RuntimeError(f"{what} failed (exit {res.returncode}): {err_msg}")
 
 
 def fetch_chat(url, out_dir, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"):
@@ -151,6 +153,25 @@ def video_info(url, cookies=None, proxy=None):
     return {"title": "", "channel": "", "duration": 0.0, "was_live": False}
 
 
+def _find_media_file(path: Path) -> Optional[Path]:
+    path = Path(path)
+    if path.is_file() and path.stat().st_size > 10000:
+        return path
+    base = str(path.with_suffix(""))
+    for ext in [".mp4", ".webm", ".mkv"]:
+        cand = Path(base + ext)
+        if cand.is_file() and cand.stat().st_size > 10000:
+            if cand != path:
+                cand.rename(path)
+                return path
+            return cand
+        cand2 = Path(str(path) + ext)
+        if cand2.is_file() and cand2.stat().st_size > 10000:
+            cand2.rename(path)
+            return path
+    return None
+
+
 def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"):
     """Download only [start, end] seconds of the video, 1080p max."""
     from .timefmt import hms
@@ -174,41 +195,49 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         _run(cmd, "segment download")
         return out_path
 
-    # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p)
-    fmt_hd = "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]"
+    # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p, aligned with gameplay-walkthrough-shorts)
+    fmt_hd = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/18"
     tiers = [
-        ("web,mweb", fmt_hd, "Tier 1: 1080p/720p web,mweb + bgutil/cookies"),
-        ("android,mweb,web", f"{fmt_hd}/22", "Tier 2: 1080p/720p android,mweb,web native bypass"),
-        ("ios", fmt_hd, "Tier 3: 1080p/720p ios HLS (no cookies)"),
-        ("android_vr", fmt_hd, "Tier 4: 1080p/720p android_vr (no cookies)"),
-        ("android", "22", "Tier 5: 720p android progressive (format 22)"),
+        # Tier 1: web,mweb with PO Token / bgutil + validated cookies
+        ("web,mweb", fmt_hd, "Tier 1: 1080p web,mweb + bgutil/cookies", True),
+        # Tier 2: Default yt-dlp auto client negotiation (no cookies)
+        (None, fmt_hd, "Tier 2: auto client (no cookies)", False),
+        # Tier 3: Apple VisionOS client (no cookies)
+        ("visionos", fmt_hd, "Tier 3: 1080p visionos (no cookies)", False),
+        # Tier 4: web,mweb with PO Token / bgutil (no cookies)
+        ("web,mweb", fmt_hd, "Tier 4: 1080p web,mweb + bgutil (no cookies)", False),
+        # Tier 5: iOS client (no cookies)
+        ("ios", fmt_hd, "Tier 5: 1080p ios HLS (no cookies)", False),
+        # Tier 6: Android VR (no cookies)
+        ("android_vr", fmt_hd, "Tier 6: 1080p android_vr (no cookies)", False),
+        # Tier 7: Progressive 720p format 22
+        ("android", "22/best[height>=720]/18", "Tier 7: 720p progressive (format 22)", False),
     ]
 
     last_err = None
-    for client, fmt, label in tiers:
+    section_arg = f"*{hms(start)}-{hms(end)}"
+    for client, fmt, label, use_cookies in tiers:
         try:
             print(f"   🔄 Attempting segment download via {label}...", flush=True)
-            use_cookies = "no cookies" not in label
             cmd = _ytdlp_base(
                 cookies=cookies if use_cookies else None,
                 proxy=proxy,
                 client=client,
-                pot=use_cookies,
+                pot=True,
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "--downloader", "native",
                 "-f", fmt,
-                "--download-sections", f"*{start:.2f}-{end:.2f}",
-                "--force-keyframes-at-cuts",
+                "--download-sections", section_arg,
                 "--merge-output-format", "mp4",
                 "-o", str(out_path),
                 url
             ]
             _run(cmd, f"segment download ({client})")
-            if out_path.exists() and out_path.stat().st_size > 10000:
+            found = _find_media_file(out_path)
+            if found:
                 print(f"   ✅ Segment downloaded successfully via {client}", flush=True)
-                return out_path
+                return found
         except Exception as e:
             print(f"   ⚠️ {label} failed: {e}", flush=True)
             last_err = e
@@ -234,20 +263,20 @@ def download_audio(url, out_path, cookies=None, proxy=None):
         _run(cmd, "audio download")
         return target_m4a
 
-    # YouTube: Multi-tier cascading fallback (copied from auto-clipper-shorts Tier 3c)
+    # YouTube audio tiers
+    fmt_audio = "ba/b/bestaudio/18/b"
     tiers = [
-        ("android,mweb,web", "ba/b/bestaudio/18/b", "Tier 3c: android,mweb,web (fmt ba/b/18)"),
-        ("web,mweb", "ba/b/bestaudio/18/b", "Tier 1: web,mweb + bgutil/cookies"),
-        ("ios", "best/18/b", "Tier 2: ios HLS (no cookies)"),
-        ("android_vr", "best/18/b", "Tier 2: android_vr (no cookies)"),
-        ("android", "18/b", "Tier 2: android (no cookies)"),
+        ("visionos", fmt_audio, "Tier 1: visionos audio (no cookies)", False),
+        ("ios", "best/18/b", "Tier 2: ios audio (no cookies)", False),
+        ("web,mweb", fmt_audio, "Tier 3: web,mweb + bgutil audio", True),
+        ("android_vr", "best/18/b", "Tier 4: android_vr audio (no cookies)", False),
+        ("android", "18/b", "Tier 5: android audio (no cookies)", False),
     ]
 
     last_err = None
-    for client, fmt, label in tiers:
+    for client, fmt, label, use_cookies in tiers:
         try:
             print(f"   🔄 Attempting audio download via {label}...", flush=True)
-            use_cookies = "no cookies" not in label
             cmd = _ytdlp_base(
                 cookies=cookies if use_cookies else None,
                 proxy=proxy,

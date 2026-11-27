@@ -87,8 +87,10 @@ def _run(cmd, what, timeout=300):
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{what} timed out after {timeout}s.")
     if res.returncode != 0:
-        err_snippet = (res.stdout or "").strip().splitlines()[-5:] if res.stdout else [f"exit {res.returncode}"]
-        raise RuntimeError(f"{what} failed (exit {res.returncode}): {' | '.join(err_snippet)}")
+        err_lines = [line for line in (res.stdout or "").splitlines() if line.strip()]
+        err_msg = next((line for line in err_lines if "ERROR:" in line), err_lines[-1] if err_lines else f"exit {res.returncode}")
+        print(f"   ❌ Output snippet from failed {what} (exit {res.returncode}):\n      {err_msg}", flush=True)
+        raise RuntimeError(f"{what} failed (exit {res.returncode}): {err_msg}")
 
 
 def fetch_chat(url, out_dir, cookies=None, proxy=None, tdl="TwitchDownloaderCLI"):
@@ -194,21 +196,22 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         return out_path
 
     # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p, aligned with gameplay-walkthrough-shorts)
-    fmt_hd = "bestvideo[height<=1080][fps<=60]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
-    fmt_hls = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
+    fmt_hd = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
     tiers = [
-        # Tier 1: web,mweb with PO Token / bgutil + cookies (Works on Azure runners)
-        ("web,mweb", fmt_hd, "Tier 1: 1080p web,mweb + bgutil/cookies", True),
-        # Tier 2: web,mweb with PO Token / bgutil (no cookies)
-        ("web,mweb", fmt_hd, "Tier 2: 1080p web,mweb + bgutil (no cookies)", False),
-        # Tier 3: Apple VisionOS client (NO cookies — pristine 1080p stream)
-        ("visionos", fmt_hls, "Tier 3: 1080p visionos (no cookies)", False),
-        # Tier 4: iOS client (NO cookies)
-        ("ios", fmt_hls, "Tier 4: 1080p ios HLS (no cookies)", False),
-        # Tier 5: Android VR (NO cookies)
-        ("android_vr", fmt_hls, "Tier 5: 1080p android_vr (no cookies)", False),
-        # Tier 6: Progressive 720p format 22
-        ("android", "22/best[height>=720]/b", "Tier 6: 720p progressive (format 22)", False),
+        # Tier 1: Default yt-dlp auto client negotiation (no cookies, avoids stale cookie bot detection)
+        (None, fmt_hd, "Tier 1: auto client (no cookies)", False),
+        # Tier 2: Apple VisionOS client (no cookies)
+        ("visionos", fmt_hd, "Tier 2: 1080p visionos (no cookies)", False),
+        # Tier 3: web,mweb with PO Token / bgutil (no cookies)
+        ("web,mweb", fmt_hd, "Tier 3: 1080p web,mweb + bgutil (no cookies)", False),
+        # Tier 4: web,mweb with PO Token / bgutil + cookies
+        ("web,mweb", fmt_hd, "Tier 4: 1080p web,mweb + bgutil/cookies", True),
+        # Tier 5: iOS client (no cookies)
+        ("ios", fmt_hd, "Tier 5: 1080p ios HLS (no cookies)", False),
+        # Tier 6: Android VR (no cookies)
+        ("android_vr", fmt_hd, "Tier 6: 1080p android_vr (no cookies)", False),
+        # Tier 7: Progressive 720p format 22
+        ("android", "22/best[height>=720]/b", "Tier 7: 720p progressive (format 22)", False),
     ]
 
     last_err = None

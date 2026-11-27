@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 YT_RE = re.compile(r"(youtube\.com|youtu\.be)/", re.I)
 TWITCH_RE = re.compile(r"(twitch\.tv/videos/|^\d{6,}$)", re.I)

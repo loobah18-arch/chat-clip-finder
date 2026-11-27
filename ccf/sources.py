@@ -178,9 +178,17 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
     out_path = Path(out_path)
     k = kind_of(url)
     if k == "twitch" and (shutil.which(tdl) or Path(tdl).exists()):
-        _run([tdl, "videodownload", "--id", url, "-b", hms(start), "-e", hms(end),
-              "-o", str(out_path)], "Twitch segment download")
-        return out_path
+        tw_id_match = re.search(r"(\d{6,})", url)
+        tw_id = tw_id_match.group(1) if tw_id_match else url
+        try:
+            _run([tdl, "videodownload", "--id", tw_id, "-b", hms(start), "-e", hms(end),
+                  "-o", str(out_path)], "Twitch segment download")
+            found = _find_media_file(out_path)
+            if found:
+                return found
+        except Exception as e:
+            print(f"   ⚠️ TwitchDownloaderCLI failed: {e}; falling back to yt-dlp for Twitch...", flush=True)
+
     if k == "file":
         _run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(start), "-to", str(end), "-i", url,
               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k",
@@ -188,12 +196,13 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         return out_path
 
     if k != "youtube":
-        cmd = _ytdlp_base(cookies, proxy) + [
-            "-f", "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]/bv*[height<=1080]+ba/b",
+        cmd = _ytdlp_base(cookies, proxy, no_cookies=True) + [
+            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/b[height<=1080]",
             "--download-sections", f"*{start:.2f}-{end:.2f}", "--force-keyframes-at-cuts",
             "--merge-output-format", "mp4", "-o", str(out_path), url]
         _run(cmd, "segment download")
-        return out_path
+        found = _find_media_file(out_path)
+        return found or out_path
 
     # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p, aligned with gameplay-walkthrough-shorts)
     fmt_hd = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/18"

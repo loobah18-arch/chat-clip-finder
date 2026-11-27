@@ -91,6 +91,7 @@ def produce_viceprint_short(
     cookies: Optional[str] = None,
     whisper_model: str = "small",
     list_only: bool = False,
+    tdl: str = "TwitchDownloaderCLI",
 ) -> List[Dict[str, Any]]:
     """Discovers fresh GTA 6 secret/gameplay footage and renders an unbranded Viceprint Short."""
     from ccf import render, viceprint
@@ -115,7 +116,12 @@ def produce_viceprint_short(
     if list_only:
         return []
 
+    yt_bot_blocked = False
     for idx, cand in enumerate(candidates, 1):
+        if yt_bot_blocked and cand.get("platform") == "youtube":
+            print(f"   ⏩ Skipping {cand['id']} (YouTube datacenter bot-block active for this runner IP)", flush=True)
+            continue
+
         cand_dir = out_dir / f"cand_{idx:02d}_{cand['id'].replace(':', '_')}"
         cand_dir.mkdir(parents=True, exist_ok=True)
         piece = cand_dir / "piece.mp4"
@@ -126,7 +132,7 @@ def produce_viceprint_short(
                 cand["url"], cand.get("duration", 0), cand_dir, target_len=54.0, cookies=cookies, proxy=proxy
             )
             print(f"   Downloading segment {start_s:.1f}s -> {end_s:.1f}s via cascading HD tiers...", flush=True)
-            sources.download_section(cand["url"], start_s, end_s, piece, cookies=cookies, proxy=proxy)
+            sources.download_section(cand["url"], start_s, end_s, piece, cookies=cookies, proxy=proxy, tdl=tdl)
 
             src_w, src_h, raw_dur = render.probe(piece)
             if src_h < 360:
@@ -194,6 +200,10 @@ def produce_viceprint_short(
             (out_dir / "posts.json").write_text(json.dumps([post], indent=2, ensure_ascii=False), encoding="utf-8")
             return [post]
         except Exception as exc:
+            err_str = str(exc)
+            if "Sign in to confirm you" in err_str or "confirm you're not a bot" in err_str:
+                yt_bot_blocked = True
+                print("   🛡️ Detected YouTube bot block on runner IP; fast-forwarding past YouTube to Twitch gameplay...", flush=True)
             print(f"   ! Candidate failed ({exc}); trying next candidate...", flush=True)
             state[cand["id"]] = {"title": cand["title"], "url": cand["url"], "at": int(time.time()), "ok": False}
             save_state(state)
@@ -245,7 +255,7 @@ def main(argv=None):
         sub = out_root / "01_viceprint"
         posts = produce_viceprint_short(
             sub, state=state, topic_id=a.topic, proxy=proxy, cookies=cookies,
-            whisper_model=a.whisper_model, list_only=a.list
+            whisper_model=a.whisper_model, list_only=a.list, tdl=a.tdl
         )
         if a.list:
             return 0
@@ -311,7 +321,7 @@ def main(argv=None):
         sub = out_root / "01_viceprint_fallback"
         all_posts = produce_viceprint_short(
             sub, state=state, topic_id=a.topic, proxy=proxy, cookies=cookies,
-            whisper_model=a.whisper_model, list_only=False
+            whisper_model=a.whisper_model, list_only=False, tdl=a.tdl
         )
 
     if not all_posts:

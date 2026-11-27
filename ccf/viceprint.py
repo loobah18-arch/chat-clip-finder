@@ -139,7 +139,7 @@ def discover_viceprint_candidates(
     cookies: Optional[str] = None,
     proxy: Optional[str] = None,
     min_duration: int = 75,
-    max_duration: int = 3600,
+    max_duration: int = 36000,
     min_views: int = 500,
 ) -> List[Dict[str, Any]]:
     """Discovers non-repeating GTA 6 secrets, tips, easter eggs, and gameplay videos."""
@@ -155,6 +155,17 @@ def discover_viceprint_candidates(
             if c and c["id"] not in by_id:
                 by_id[c["id"]] = c
 
+    # Also discover top Twitch GTA broadcasts for fallback if YouTube hits datacenter bot gating
+    try:
+        _, tw_logins = discover.load_followed("streamers.txt")
+        tw_cands = discover.twitch_top("Grand Theft Auto VI", n=10, logins=tw_logins)
+        tw_cands += discover.twitch_top("Grand Theft Auto V", n=15, logins=tw_logins)
+        for c in tw_cands:
+            if c and c["id"] not in by_id:
+                by_id[c["id"]] = c
+    except Exception as e:
+        print(f"   (Twitch Viceprint discovery skipped: {e})", flush=True)
+
     ranked = []
     for c in by_id.values():
         if c["id"] in seen:
@@ -166,7 +177,8 @@ def discover_viceprint_candidates(
             continue
         if c.get("views_known") and c.get("views", 0) < min_views:
             continue
-        if not is_viceprint_candidate(c.get("title", "")):
+        is_twitch = c.get("platform") == "twitch"
+        if not is_twitch and not is_viceprint_candidate(c.get("title", "")):
             continue
         secret_bonus = 2.0 if re.search(r"\b(secret|hidden|trick|easter\s*egg|detail|tip|mystery)\b", c["title"], re.I) else 1.0
         c["score"] = max(c.get("views", 1000), 1000) * secret_bonus
@@ -257,7 +269,16 @@ def pick_best_segment(video_url: str, duration: float, work_dir: Path, target_le
     dur = float(duration or 0)
     if dur <= 0:
         return 20.0, 20.0 + target_len
-    skip_start = 20.0 if dur > 120.0 else (10.0 if dur > 80.0 else 0.0)
+    if dur > 1800.0:
+        skip_start = 900.0
+    elif dur > 600.0:
+        skip_start = 300.0
+    elif dur > 120.0:
+        skip_start = 20.0
+    elif dur > 80.0:
+        skip_start = 10.0
+    else:
+        skip_start = 0.0
     start = min(skip_start, max(0.0, dur - target_len))
     return round(start, 2), round(min(dur, start + target_len), 2)
 

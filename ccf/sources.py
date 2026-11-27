@@ -196,22 +196,22 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         return out_path
 
     # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p, aligned with gameplay-walkthrough-shorts)
-    fmt_hd = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
+    fmt_hd = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/18"
     tiers = [
-        # Tier 1: Default yt-dlp auto client negotiation (no cookies, avoids stale cookie bot detection)
-        (None, fmt_hd, "Tier 1: auto client (no cookies)", False),
-        # Tier 2: Apple VisionOS client (no cookies)
-        ("visionos", fmt_hd, "Tier 2: 1080p visionos (no cookies)", False),
-        # Tier 3: web,mweb with PO Token / bgutil (no cookies)
-        ("web,mweb", fmt_hd, "Tier 3: 1080p web,mweb + bgutil (no cookies)", False),
-        # Tier 4: web,mweb with PO Token / bgutil + cookies
-        ("web,mweb", fmt_hd, "Tier 4: 1080p web,mweb + bgutil/cookies", True),
+        # Tier 1: web,mweb with PO Token / bgutil + validated cookies
+        ("web,mweb", fmt_hd, "Tier 1: 1080p web,mweb + bgutil/cookies", True),
+        # Tier 2: Default yt-dlp auto client negotiation (no cookies)
+        (None, fmt_hd, "Tier 2: auto client (no cookies)", False),
+        # Tier 3: Apple VisionOS client (no cookies)
+        ("visionos", fmt_hd, "Tier 3: 1080p visionos (no cookies)", False),
+        # Tier 4: web,mweb with PO Token / bgutil (no cookies)
+        ("web,mweb", fmt_hd, "Tier 4: 1080p web,mweb + bgutil (no cookies)", False),
         # Tier 5: iOS client (no cookies)
         ("ios", fmt_hd, "Tier 5: 1080p ios HLS (no cookies)", False),
         # Tier 6: Android VR (no cookies)
         ("android_vr", fmt_hd, "Tier 6: 1080p android_vr (no cookies)", False),
         # Tier 7: Progressive 720p format 22
-        ("android", "22/best[height>=720]/b", "Tier 7: 720p progressive (format 22)", False),
+        ("android", "22/best[height>=720]/18", "Tier 7: 720p progressive (format 22)", False),
     ]
 
     last_err = None

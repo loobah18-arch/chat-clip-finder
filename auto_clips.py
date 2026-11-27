@@ -129,12 +129,14 @@ def produce_viceprint_short(
             sources.download_section(cand["url"], start_s, end_s, piece, cookies=cookies, proxy=proxy)
 
             src_w, src_h, raw_dur = render.probe(piece)
-            if src_h < 720:
-                print(f"   ! Skipping candidate: resolution {src_w}x{src_h} < 720p", flush=True)
+            if src_h < 360:
+                print(f"   ! Skipping candidate: resolution {src_w}x{src_h} < 360p", flush=True)
                 piece.unlink(missing_ok=True)
                 state[cand["id"]] = {"title": cand["title"], "url": cand["url"], "at": int(time.time()), "ok": False}
                 save_state(state)
                 continue
+            if src_h < 720:
+                print(f"   ℹ️ Notice: Source resolution is {src_w}x{src_h}; upscaling cleanly to 1080x1080 with unsharp enhancement.", flush=True)
 
             words = captions.transcribe(piece, model_size=whisper_model)
             print(f"   Transcribed {len(words)} spoken words in segment.", flush=True)

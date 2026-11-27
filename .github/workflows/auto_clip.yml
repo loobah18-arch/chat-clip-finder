@@ -213,12 +213,14 @@ jobs:
         run: |
           if [ -n "${YOUTUBE_COOKIES:-}" ]; then
             python3 - <<'PY'
-          import base64, os
-          raw = os.environ["YOUTUBE_COOKIES"].strip()
-          text = raw if ("# Netscape" in raw or "\t" in raw) else base64.b64decode(raw).decode("utf-8")
-          open("youtube_cookies.txt", "w", encoding="utf-8").write(text + "\n")
+          import os
+          from ccf.cookie_manager import CookieManager
+          raw = os.environ.get("YOUTUBE_COOKIES", "").strip()
+          if raw:
+              CookieManager.export_cookie_file(raw, "youtube_cookies.txt")
+              info = CookieManager.validate_cookies_content(CookieManager.decode_cookie_data(raw))
+              print(f"🍪 Exported youtube_cookies.txt (valid={info['valid']}, expired={info['expired_count']})")
           PY
-            echo "🍪 cookies ready"
           else
             echo "No YOUTUBE_COOKIES secret: YouTube may ask to sign in"
           fi

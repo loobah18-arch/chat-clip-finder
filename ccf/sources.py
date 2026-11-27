@@ -41,15 +41,6 @@ def find_cookies(explicit=None):
     return found[0] if found else None
 
 
-def _is_bgutil_up(url: str = "http://127.0.0.1:4416") -> bool:
-    try:
-        import urllib.request
-        with urllib.request.urlopen(f"{url}/ping", timeout=1.5) as r:
-            return r.status == 200
-    except Exception:
-        return False
-
-
 def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=False):
     exe = shutil.which("yt-dlp")
     cmd = [exe] if exe else [sys.executable, "-m", "yt_dlp"]
@@ -75,10 +66,9 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
             "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
             "--extractor-args", f"youtube:visitor_data={visitor_data}",
         ]
-    elif pot and (client is None or "web" in str(client)):
+    elif pot:
         bgutil_url = os.environ.get("BGUTIL_BASE_URL", "http://127.0.0.1:4416")
-        if _is_bgutil_up(bgutil_url):
-            cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
+        cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
 
     if client:
         cmd += ["--extractor-args", f"youtube:player_client={client}"]
@@ -87,13 +77,14 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
 
 
 def _run(cmd, what, timeout=300):
-    print(f"   $ {' '.join(c if ' ' not in c else repr(c) for c in cmd[:5])} ... ({what})", flush=True)
+    logged_cmd = [c if not c.startswith("--cookies") else "--cookies [REDACTED]" for c in cmd]
+    print(f"   $ {' '.join(logged_cmd)} ... ({what})", flush=True)
     try:
         res = subprocess.run(cmd, timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{what} timed out after {timeout}s.")
     if res.returncode != 0:
-        err_snippet = (res.stdout or "").strip().splitlines()[-4:] if res.stdout else [f"exit {res.returncode}"]
+        err_snippet = (res.stdout or "").strip().splitlines()[-5:] if res.stdout else [f"exit {res.returncode}"]
         raise RuntimeError(f"{what} failed (exit {res.returncode}): {' | '.join(err_snippet)}")
 
 
@@ -184,16 +175,18 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
     fmt_hd = "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]"
     fmt_hls = f"{fmt_hd}/best[height>=720][height<=1080]/b[height>=720]"
     tiers = [
-        # Tier 1: Apple VisionOS client (NO cookies — pristine 1080p stream, bypasses SABR bot checks)
-        ("visionos", fmt_hls, "Tier 1: 1080p visionos (no cookies)", False),
-        # Tier 2: iOS client (NO cookies)
-        ("ios", fmt_hls, "Tier 2: 1080p ios HLS (no cookies)", False),
-        # Tier 3: web,mweb with PO Token / bgutil + cookies if present
-        ("web,mweb", fmt_hd, "Tier 3: 1080p web,mweb + bgutil", True),
-        # Tier 4: Android VR (NO cookies)
-        ("android_vr", fmt_hls, "Tier 4: 1080p android_vr (no cookies)", False),
-        # Tier 5: Progressive 720p format 22
-        ("android", "22", "Tier 5: 720p progressive (format 22)", False),
+        # Tier 1: web,mweb with PO Token / bgutil + cookies (Works on Azure runners)
+        ("web,mweb", fmt_hd, "Tier 1: 1080p web,mweb + bgutil/cookies", True),
+        # Tier 2: web,mweb with PO Token / bgutil (no cookies)
+        ("web,mweb", fmt_hd, "Tier 2: 1080p web,mweb + bgutil (no cookies)", False),
+        # Tier 3: Apple VisionOS client (NO cookies — pristine 1080p stream)
+        ("visionos", fmt_hls, "Tier 3: 1080p visionos (no cookies)", False),
+        # Tier 4: iOS client (NO cookies)
+        ("ios", fmt_hls, "Tier 4: 1080p ios HLS (no cookies)", False),
+        # Tier 5: Android VR (NO cookies)
+        ("android_vr", fmt_hls, "Tier 5: 1080p android_vr (no cookies)", False),
+        # Tier 6: Progressive 720p format 22
+        ("android", "22", "Tier 6: 720p progressive (format 22)", False),
     ]
 
     last_err = None

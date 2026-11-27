@@ -258,20 +258,6 @@ def pick_best_segment(video_url: str, duration: float, work_dir: Path, target_le
     if dur <= 0:
         return 20.0, 20.0 + target_len
     skip_start = 20.0 if dur > 120.0 else (10.0 if dur > 80.0 else 0.0)
-    skip_end = 15.0 if dur > 120.0 else 0.0
-    try:
-        aud = sources.download_audio(video_url, work_dir / "probe_audio", cookies=cookies, proxy=proxy)
-        buckets = audio.loudness_buckets(aud, bucket=10)
-        aud.unlink(missing_ok=True)
-        if buckets:
-            lo = int(skip_start // 10)
-            hi = max(lo + 1, len(buckets) - int(skip_end // 10))
-            best_bucket = max(range(lo, hi), key=lambda i: buckets[i])
-            peak = best_bucket * 10.0 + 5.0
-            start = max(skip_start, min(peak - target_len * 0.4, dur - target_len))
-            return round(start, 2), round(min(dur, start + target_len), 2)
-    except Exception as exc:
-        print(f"   ! Audio peak scan skipped ({exc}); using smart mid-roll offset.", flush=True)
     start = min(skip_start, max(0.0, dur - target_len))
     return round(start, 2), round(min(dur, start + target_len), 2)
 

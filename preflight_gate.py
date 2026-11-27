@@ -45,16 +45,14 @@ def _parse_timestamp(raw: str) -> datetime:
 
 def _last_valid_upload(records):
     """Latest entry representing a real successful upload. Skips dry-run ids,
-    non-uploaded statuses, and entries without a usable timestamp (fail-open
-    direction: a stricter filter errs toward re-running, and the upload step's
-    candle gate still enforces Layer 0 anyway)."""
+    failed/non-uploaded statuses, and entries without a usable timestamp."""
     for rec in reversed(records if isinstance(records, list) else []):
         if not isinstance(rec, dict):
             continue
-        vid = str(rec.get("video_id") or "")
+        vid = str(rec.get("video_id") or rec.get("youtube_id") or "")
         if not vid or vid.startswith("dry_run"):
             continue
-        if rec.get("status") != "uploaded":
+        if rec.get("status") not in {"uploaded", "published"} and not rec.get("published", False):
             continue
         raw_ts = rec.get("timestamp")
         if not raw_ts or not isinstance(raw_ts, str):
@@ -69,9 +67,12 @@ def decide(
     min_spacing_hours: float = DEFAULT_MIN_SPACING_HOURS,
     max_inline_wait_hours: float = DEFAULT_MAX_INLINE_WAIT_HOURS,
     youtube_client=None,
+    state_file=None,
 ) -> dict:
     """Pure decision function (no sleeping, no side effects) for testability."""
     now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
 
     try:
         history = Path(history_path)
@@ -91,18 +92,20 @@ def decide(
         published_at = _parse_timestamp(raw_ts)
     except Exception as exc:
         return {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                "last_video_id": rec.get("video_id"), "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
+                "last_video_id": rec.get("video_id") or rec.get("youtube_id"), "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
                 "reason": f"fail-open: unparseable timestamp {raw_ts!r} ({exc})"}
 
+    vid = rec.get("video_id") or rec.get("youtube_id")
     elapsed_hours = max((now - published_at).total_seconds() / 3600.0, 0.0)
-    spacing = CandleGate().evaluate_upload_spacing(
+    gate = CandleGate(state_file=Path(state_file)) if state_file else CandleGate()
+    spacing = gate.evaluate_upload_spacing(
         elapsed_hours, min_spacing_hours, max_inline_wait_hours
     )
 
     due_at = published_at + timedelta(hours=min_spacing_hours)
     next_cron = f"{due_at.minute} {due_at.hour} * * *"
 
-    base = {"elapsed_hours": round(elapsed_hours, 2), "last_video_id": rec.get("video_id"), "next_cron": next_cron}
+    base = {"elapsed_hours": round(elapsed_hours, 2), "last_video_id": vid, "next_cron": next_cron}
     if not spacing["can_upload"] and not spacing["requires_spacing_sleep"]:
         remaining = max(int(round((min_spacing_hours - elapsed_hours) * 3600)), 0)
         return {**base, "proceed": False, "sleep_seconds": 0, "remaining_seconds": remaining,
@@ -117,7 +120,7 @@ def decide(
     # Layer 1 & Layer 2: check live channel performance when youtube_client is available
     if youtube_client is not None:
         try:
-            live = CandleGate().evaluate_live_channel(youtube_client=youtube_client, history_path=Path(history_path), now=now)
+            live = gate.evaluate_live_channel(youtube_client=youtube_client, history_path=Path(history_path), now=now)
             candle_eval = live.get("candle_evaluation", {}) if isinstance(live, dict) else {}
             if candle_eval and not candle_eval.get("can_upload", True):
                 timer_sec = int(candle_eval.get("timer_seconds", 3600))
@@ -143,6 +146,9 @@ def main() -> int:
         or "--bypass" in sys.argv
     )
 
+    zero_sleep = os.environ.get("PREFLIGHT_ZERO_SLEEP", "").strip().lower() in {"1", "true", "yes"}
+    max_inline = 0.0 if zero_sleep else DEFAULT_MAX_INLINE_WAIT_HOURS
+
     if bypass:
         result = {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
                   "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
@@ -155,7 +161,7 @@ def main() -> int:
         except Exception as exc:
             print(f"⚠️ Skipping live Layer 1/2 check ({exc}); evaluating Layer 0 history only.", flush=True)
         try:
-            result = decide(youtube_client=yt_client)
+            result = decide(youtube_client=yt_client, max_inline_wait_hours=max_inline)
         except Exception as exc:  # belt-and-braces fail-open
             result = {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
                       "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",

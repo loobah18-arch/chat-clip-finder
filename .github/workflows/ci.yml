@@ -22,7 +22,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run test suite
         run: |
-          pip install -q requests Pillow
+          pip install -q requests Pillow edge-tts
+          python3 -m py_compile auto_clips.py chat_clips.py preflight_gate.py candle_gate.py youtube_uploader.py ccf/*.py
+          python3 auto_clips.py --help >/dev/null
           python3 test_chat_clips.py
           python3 test_candle_gate.py
           python3 test_preflight_gate.py

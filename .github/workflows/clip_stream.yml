@@ -39,6 +39,7 @@ on:
         options:
           - auto
           - stack
+          - viceprint
           - gameplay
           - blur
           - crop

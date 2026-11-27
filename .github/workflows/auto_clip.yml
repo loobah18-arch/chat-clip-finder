@@ -69,6 +69,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install lightweight gate dependencies
+        run: python3 -m pip install --quiet requests google-api-python-client google-auth
+
       - name: Is it 4 PM in New York?
         id: clock
         run: |
@@ -79,14 +87,15 @@ jobs:
           if [ "${{ github.event.schedule }}" = "$WANT" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else
             echo "Not the 4 PM ET trigger today, skipping."; echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: 24-hour upload spacing (skip the whole pipeline unless due)
+      - name: 24-hour upload spacing & live Layer 1/2 check (Zero-Sleep)
         id: gate
         env:
-          # manual "Run workflow" clicks always proceed; scheduled runs or exact-due timer check the 24h spacing
+          # manual "Run workflow" clicks always proceed; scheduled runs or exact-due timer check all safety layers
           PREFLIGHT_BYPASS: ${{ github.event_name != 'schedule' && !inputs.from_timer }}
-          CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          PREFLIGHT_ZERO_SLEEP: '1'
+          CLIENT_ID: ${{ secrets.CLIENT_ID || secrets.YOUTUBE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET || secrets.YOUTUBE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN || secrets.YOUTUBE_REFRESH_TOKEN }}
         run: |
           if [ "${{ steps.clock.outputs.ok }}" != "true" ]; then echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           python3 preflight_gate.py
@@ -228,9 +237,15 @@ jobs:
           ARGS=(--game "$GAME" --count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --mode "$MODE" --tdl ./TwitchDownloaderCLI --out clips)
           [ -n "$TOPIC" ] && ARGS+=(--topic "$TOPIC")
           [ "${{ inputs.list_only }}" = "true" ] && ARGS+=(--list)
-          python3 auto_clips.py "${ARGS[@]}" || echo "No Shorts this time"
+          RC=0
+          python3 auto_clips.py "${ARGS[@]}" || RC=$?
           rm -f youtube_cookies.txt
           ls -lhR clips/ 2>/dev/null | head -50
+          if [ "$RC" -eq 3 ]; then
+            echo "ℹ️ No eligible Shorts could be generated this cycle."
+          elif [ "$RC" -ne 0 ]; then
+            exit "$RC"
+          fi
 
       - name: Upload Shorts as artifact
         if: ${{ hashFiles('clips/**/*.mp4') != '' }}
@@ -246,9 +261,9 @@ jobs:
       - name: Publish best Short (Candle Gate protected)
         if: ${{ env.DO_UPLOAD == 'true' && hashFiles('clips/posts.json') != '' && !inputs.list_only }}
         env:
-          CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID || secrets.YOUTUBE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET || secrets.YOUTUBE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN || secrets.YOUTUBE_REFRESH_TOKEN }}
         run: |
           EXTRA=()
           [ "${{ inputs.force_upload }}" = "true" ] && EXTRA+=(--force)

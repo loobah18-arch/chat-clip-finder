@@ -66,15 +66,16 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
         top = 420                             # centered vertically: (1920 - 1080) / 2 = 420
         g = (f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
              f"boxblur=30:3,eq=brightness=-0.22:saturation=1.25[bg];"
-             f"[0:v]crop={fw}:{src_h}:(iw-{fw})/2:0,scale=1080:1080,setsar=1[fg];"
+             f"[0:v]crop={fw}:{fw}:(iw-{fw})/2:(ih-{fw})/2,scale=1080:1080,"
+             f"unsharp=3:3:0.5:3:3:0.0,eq=contrast=1.05:saturation=1.10,setsar=1[fg];"
              f"[bg][fg]overlay=0:{top},fps={fps}[base]")
-        return g, top + 200, top - 80
+        return g, top + 160, 0
     if layout == "gameplay":
         fw = min(src_w, src_h) // 2 * 2       # square centre of the action, zoomed
         top = 360
         g = (f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
              f"boxblur=30:3,eq=brightness=-0.22:saturation=1.3[bg];"
-             f"[0:v]crop={fw}:{src_h}:(iw-{fw})/2:0,scale=1080:{GAME_FG_H},setsar=1[fg];"
+             f"[0:v]crop={fw}:{fw}:(iw-{fw})/2:(ih-{fw})/2,scale=1080:{GAME_FG_H},setsar=1[fg];"
              f"[bg][fg]overlay=0:{top},fps={fps}[base]")
         return g, top + GAME_FG_H + 75, top - 60
     if layout == "crop":
@@ -98,9 +99,11 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
         return {"layout": None, "cam": None, "duration": dur}
     graph, cap_y, credit_v = video_graph(layout, src_w, src_h, cam, fps)
 
-    if layout == "viceprint" and (caption_style == "ig-comment" or caption_style is None):
-        caption_style = "viceprint"
+    if layout == "viceprint":
+        if caption_style in ("ig-comment", None):
+            caption_style = "viceprint"
         ig_comment = None
+        credit = ""
 
     sticker_info = None
     sticker_path = None

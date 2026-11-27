@@ -68,9 +68,10 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
     # Check for bgutil POT provider on localhost:4416
     try:
         import urllib.request
-        with urllib.request.urlopen("http://127.0.0.1:4416/ping", timeout=0.5) as r:
+        bgutil_url = os.environ.get("BGUTIL_BASE_URL", "http://127.0.0.1:4416")
+        with urllib.request.urlopen(f"{bgutil_url}/ping", timeout=0.5) as r:
             if r.status == 200:
-                cmd += ["--extractor-args", "youtubepot-provider:url=http://127.0.0.1:4416"]
+                cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
     except Exception:
         pass
 

@@ -119,8 +119,8 @@ class TestPreflightDecide(unittest.TestCase):
         self.assertTrue(res["proceed"])
         self.assertIn("fail-open", res["reason"])
 
-    def test_live_youtube_client_layer1_blocks_when_spacing_cleared(self):
-        # 28h elapsed (clears Layer 0), but live YouTube client reports viral velocity (>2.5k views/hr)
+    def test_live_youtube_client_layer2_blocks_when_spacing_cleared(self):
+        # 28h elapsed (clears Layer 0), live YouTube client reports >2.5k views/hr velocity (Layer 2)
         from unittest.mock import MagicMock
         self.write([entry(ts=(NOW - timedelta(hours=28)).isoformat())])
         mock_client = MagicMock()
@@ -131,11 +131,21 @@ class TestPreflightDecide(unittest.TestCase):
                 "statistics": {"viewCount": "100000"},
             }]
         }
-        res = decide(self.path, NOW, youtube_client=mock_client)
+        state_file = Path(self.tmp.name) / "gate_state.json"
+        res = decide(self.path, NOW, max_inline_wait_hours=0.0, youtube_client=mock_client, state_file=state_file)
         self.assertFalse(res["proceed"])
         self.assertEqual(res["sleep_seconds"], 0)
         self.assertGreater(res["remaining_seconds"], 0)
-        self.assertIn("Active push in progress", res["reason"])
+        self.assertTrue("performing well" in res["reason"] or "Active push" in res["reason"])
+
+    def test_zero_sleep_mode_defers_remaining_minutes_to_timer(self):
+        # Match gameplay-walkthrough-shorts Zero-Sleep preflight: 10 mins remaining -> skip cleanly
+        self.write([entry(ts=(NOW - timedelta(hours=23, minutes=50)).isoformat())])
+        res = decide(self.path, NOW, max_inline_wait_hours=0.0)
+        self.assertFalse(res["proceed"])
+        self.assertEqual(res["sleep_seconds"], 0)
+        self.assertEqual(res["remaining_seconds"], 600)
+        self.assertTrue(res["next_cron"])
 
 
 if __name__ == "__main__":

@@ -46,10 +46,23 @@ class TestUploaderGate(unittest.TestCase):
         from preflight_gate import decide
         with tempfile.TemporaryDirectory() as d:
             yu.HISTORY_FILE = Path(d) / "upload_history.json"
-            yu.record_upload("abc123", "t", "clip.mp4", "public")
+            yu.record_upload("abc123", "t", "clip.mp4", "public", mode="viceprint", layout="viceprint")
+            saved = json.loads(yu.HISTORY_FILE.read_text())
+            self.assertEqual(saved[0]["status"], "uploaded")
+            self.assertEqual(saved[0]["mode"], "viceprint")
+            self.assertEqual(saved[0]["layout"], "viceprint")
             res = decide(history_path=yu.HISTORY_FILE)
             self.assertFalse(res["proceed"])  # just uploaded -> next run is skipped
-            self.assertEqual(json.loads(yu.HISTORY_FILE.read_text())[0]["status"], "uploaded")
+
+    def test_local_layer0_enforced_when_youtube_api_unreachable(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            yu.HISTORY_FILE = Path(d) / "upload_history.json"
+            yu.record_upload("recent99", "t", "clip.mp4", "public", mode="stream", layout="stack")
+            with patch.object(yu, "youtube_client", side_effect=RuntimeError("token expired")):
+                ok, msg = yu.check_candle_gate(force=False, auto_timer=False)
+                self.assertFalse(ok)
+                self.assertIn("Layer 0", msg)
 
 
 if __name__ == "__main__":

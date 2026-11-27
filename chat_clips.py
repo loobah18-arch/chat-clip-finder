@@ -27,9 +27,9 @@ Finding moments:
     --skip-start / --skip-end <s>  Ignore "Starting soon" / ending screen (default 120 / 60)
 
 Making the Short:
-    --layout <auto|stack|gameplay|blur|crop>   (default auto: stack if a webcam is found, else gameplay)
+    --layout <auto|stack|viceprint|gameplay|blur|crop>   (default stack; viceprint = unbranded 1:1 on blur)
     --cam <auto|top-left|top-right|bottom-left|bottom-right>   Webcam position (default auto-detect)
-    --captions <on|off>       Word-by-word captions with Whisper (default on)
+    --captions <ig-comment|word|viceprint|on|off>   Caption mode
     --whisper-model <name>    tiny / base / small / medium (default small)
     --lang <code>             Spoken language, e.g. en, hi (default: auto-detect)
     --hook <text>             Fixed hook title for every clip (default: picked per clip from chat)
@@ -319,7 +319,8 @@ def main(argv=None):
         if caption_style == "ig-comment" and ig_comment:
             print(f"   💬 Instagram comment sticker: \"{ig_comment['text']}\" (@{ig_comment['username']})", flush=True)
 
-        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"], m["credit"],
+        r = render.render(piece, out_path, a.layout, a.cam, words, m["hook"],
+                          "" if caption_style == "viceprint" else m["credit"],
                           require_cam=a.require_cam, duration=snapped_dur,
                           ig_comment=ig_comment, caption_style=caption_style)
         piece.unlink(missing_ok=True)
@@ -328,7 +329,9 @@ def main(argv=None):
             sys.exit(3)
         print(f"   ✅ {out_path}  ({r['layout']} layout, {len(words)} caption words)")
         posts.append({"file": str(out_path), "title": m["title"], "description": m["description"],
-                      "tags": m["tags"], "layout": r["layout"], "coherence_score": coherence,
+                      "tags": m["tags"], "layout": r["layout"],
+                      "mode": "viceprint" if r["layout"] == "viceprint" else "stream",
+                      "coherence_score": coherence,
                       "audio_peak_db": round(peak_db, 1), "snapped_duration": snapped_dur})
 
     with open(out_dir / "posts.json", "w", encoding="utf-8") as f:

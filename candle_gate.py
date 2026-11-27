@@ -291,19 +291,24 @@ class CandleGate:
             title = "Previous Short"
             published_at_str = None
 
-            # First priority: check upload_history.json
+            # First priority: check upload_history.json (only real uploaded/published entries)
             history_file = Path(history_path) if history_path else (Path(__file__).resolve().parent / "upload_history.json")
             if history_file.exists():
                 try:
                     records = json.loads(history_file.read_text(encoding="utf-8"))
                     if records and isinstance(records, list):
                         for rec in reversed(records):
-                            raw_id = rec.get("video_id")
-                            if raw_id and not str(raw_id).startswith("dry_run"):
-                                vid_id = raw_id
-                                title = rec.get("title", title)
-                                published_at_str = rec.get("timestamp")
-                                break
+                            if not isinstance(rec, dict):
+                                continue
+                            raw_id = rec.get("video_id") or rec.get("youtube_id")
+                            if not raw_id or str(raw_id).startswith("dry_run"):
+                                continue
+                            if rec.get("status") not in {"uploaded", "published"} and not rec.get("published", False):
+                                continue
+                            vid_id = raw_id
+                            title = rec.get("title", title)
+                            published_at_str = rec.get("timestamp")
+                            break
                 except Exception:
                     pass
 

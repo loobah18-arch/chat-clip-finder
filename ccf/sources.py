@@ -45,9 +45,25 @@ def find_cookies(explicit=None):
 def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=False):
     exe = shutil.which("yt-dlp")
     cmd = [exe] if exe else [sys.executable, "-m", "yt_dlp"]
-    cmd += ["--no-warnings", "--no-playlist", "--retries", "3", "--fragment-retries", "5", "--socket-timeout", "45"]
+    cmd += ["-v", "--no-warnings", "--no-playlist", "--retries", "3", "--fragment-retries", "5", "--socket-timeout", "45"]
     if shutil.which("node"):
         cmd += ["--js-runtimes", "node", "--remote-components", "ejs:github"]
+
+    if client:
+        cmd += ["--extractor-args", f"youtube:player_client={client}"]
+
+    is_web_client = "web" in (client or "") or client is None
+    po_token = os.environ.get("YT_PO_TOKEN")
+    visitor_data = os.environ.get("YT_VISITOR_DATA")
+    if pot and is_web_client:
+        if po_token and visitor_data:
+            cmd += [
+                "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
+                "--extractor-args", f"youtube:visitor_data={visitor_data}",
+            ]
+        else:
+            bgutil_url = os.environ.get("BGUTIL_BASE_URL", "http://127.0.0.1:4416")
+            cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
 
     if not no_cookies:
         cookies_file = find_cookies(cookies)
@@ -59,20 +75,6 @@ def _ytdlp_base(cookies=None, proxy=None, client=None, pot=True, no_cookies=Fals
     proxy = proxy or os.environ.get("YOUTUBE_PROXY")
     if proxy:
         cmd += ["--proxy", proxy]
-
-    po_token = os.environ.get("YT_PO_TOKEN")
-    visitor_data = os.environ.get("YT_VISITOR_DATA")
-    if pot and po_token and visitor_data:
-        cmd += [
-            "--extractor-args", f"youtube:po_token=web.gvs+{po_token}",
-            "--extractor-args", f"youtube:visitor_data={visitor_data}",
-        ]
-    elif pot:
-        bgutil_url = os.environ.get("BGUTIL_BASE_URL", "http://127.0.0.1:4416")
-        cmd += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={bgutil_url}"]
-
-    if client:
-        cmd += ["--extractor-args", f"youtube:player_client={client}"]
 
     return cmd
 
@@ -192,8 +194,8 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         return out_path
 
     # YouTube: Multi-tier cascading fallback (strictly >=720p, <=1080p, aligned with gameplay-walkthrough-shorts)
-    fmt_hd = "bv*[height>=720][height<=1080][fps<=60]+ba/b[height>=720][height<=1080]"
-    fmt_hls = f"{fmt_hd}/best[height>=720][height<=1080]/b[height>=720]"
+    fmt_hd = "bestvideo[height<=1080][fps<=60]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
+    fmt_hls = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/b[height>=720]/b"
     tiers = [
         # Tier 1: web,mweb with PO Token / bgutil + cookies (Works on Azure runners)
         ("web,mweb", fmt_hd, "Tier 1: 1080p web,mweb + bgutil/cookies", True),
@@ -206,10 +208,11 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
         # Tier 5: Android VR (NO cookies)
         ("android_vr", fmt_hls, "Tier 5: 1080p android_vr (no cookies)", False),
         # Tier 6: Progressive 720p format 22
-        ("android", "22", "Tier 6: 720p progressive (format 22)", False),
+        ("android", "22/best[height>=720]/b", "Tier 6: 720p progressive (format 22)", False),
     ]
 
     last_err = None
+    section_arg = f"*{hms(start)}-{hms(end)}"
     for client, fmt, label, use_cookies in tiers:
         try:
             print(f"   🔄 Attempting segment download via {label}...", flush=True)
@@ -221,10 +224,8 @@ def download_section(url, start, end, out_path, cookies=None, proxy=None, tdl="T
                 no_cookies=not use_cookies
             ) + [
                 "-4",
-                "--downloader", "native",
                 "-f", fmt,
-                "--download-sections", f"*{start:.2f}-{end:.2f}",
-                "--force-keyframes-at-cuts",
+                "--download-sections", section_arg,
                 "--merge-output-format", "mp4",
                 "-o", str(out_path),
                 url

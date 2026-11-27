@@ -97,7 +97,7 @@ def produce_viceprint_short(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     records = _load_upload_history()
-    seen_ids = set(state.keys()) | _uploaded_source_ids(records)
+    seen_ids = {k for k, v in state.items() if isinstance(v, dict) and v.get("ok", False)} | _uploaded_source_ids(records)
 
     print("🔎 Searching for fresh GTA 6 secrets, tips & gameplay footage for Viceprint mode...", flush=True)
     candidates = viceprint.discover_viceprint_candidates(

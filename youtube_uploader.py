@@ -37,6 +37,9 @@ def youtube_client():
     return build("youtube", "v3", credentials=Credentials(token=get_access_token()))
 
 
+build_youtube_client = youtube_client
+
+
 def record_upload(video_id, title, video_path, privacy, source_url="", status="uploaded"):
     try:
         records = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else []

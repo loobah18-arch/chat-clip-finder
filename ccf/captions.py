@@ -184,6 +184,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if hook:
             ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
                       r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
+    elif style == "viceprint":
+        # Viceprint formula: @grandtheftclipper watermark handle at top, kinetic 1-2 word captions
+        handle_text = _clean(credit or "@grandtheftclipper")
+        if not handle_text.startswith("@"):
+            handle_text = f"@{handle_text}"
+        handle_y = credit_v if credit_v else 340
+        ev.append(f"Dialogue: 0,{_ts(0)},{_ts(duration)},Credit,,0,0,0,,{{\\pos(540,{handle_y})\\an8\\b1\\fs38\\c&H00FFFFFF&\\bord4\\3c&H80000000&\\shad0}}{handle_text}")
+
+        pos = rf"\pos(540,{caption_y})"
+        groups = group_words(words, max_words=2, max_chars=14)
+        for gi, g in enumerate(groups):
+            nxt = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else duration
+            g_end = min(duration, nxt, g[-1]["e"] + 0.25)
+            for i, w in enumerate(g):
+                s = w["s"]
+                e = g[i + 1]["s"] if i + 1 < len(g) else g_end
+                if e - s < 0.05:
+                    continue
+                parts = []
+                for j, x in enumerate(g):
+                    if j == i:
+                        parts.append(r"{\c" + HIGHLIGHT + r"\fscx115\fscy115}" + x["w"] + r"{\c" + WHITE + r"\fscx100\fscy100}")
+                    else:
+                        parts.append(x["w"])
+                pop = r"{\fscx90\fscy90\t(0,80,\fscx100\fscy100)}" if i == 0 else ""
+                ev.append(f"Dialogue: 1,{_ts(s)},{_ts(e)},Cap,,0,0,0,,{{{pos}}}{pop}{' '.join(parts)}")
+        hook = _clean(hook or "")
+        if hook:
+            ev.append(f"Dialogue: 2,{_ts(0)},{_ts(min(hook_secs, duration))},Hook,,0,0,0,,"
+                      r"{\fad(0,250)\fscx90\fscy90\t(0,120,\fscx100\fscy100)}" + _wrap(hook.upper()))
     elif style == "ig-comment" and ig_comment:
         card_w, card_h = 900, 220
         card_x = (1080 - card_w) // 2  # 90

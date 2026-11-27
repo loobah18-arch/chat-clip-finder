@@ -10,6 +10,15 @@ on:
     - cron: '0 21 * * *'
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Content Mode: auto (dual mode rotation/fallback), stream (streamer stack), viceprint (narrated secrets)'
+        type: choice
+        default: 'auto'
+        options: ['auto', 'viceprint', 'stream']
+      viceprint_topic:
+        description: 'Viceprint Topic ID (optional, e.g. secret_workout, creepiest_secret)'
+        required: false
+        default: ''
       game:
         description: 'Game: gta6, or any name (valorant, minecraft, fortnite...)'
         default: 'gta6'
@@ -75,6 +84,9 @@ jobs:
         env:
           # manual "Run workflow" clicks always proceed; scheduled runs or exact-due timer check the 24h spacing
           PREFLIGHT_BYPASS: ${{ github.event_name != 'schedule' && !inputs.from_timer }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
         run: |
           if [ "${{ steps.clock.outputs.ok }}" != "true" ]; then echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           python3 preflight_gate.py
@@ -111,7 +123,7 @@ jobs:
         run: |
           gh workflow run auto_clip.yml \
             --repo "${{ github.repository }}" --ref "${{ github.ref_name }}" \
-            -f upload_to_youtube=true -f from_timer=true
+            -f upload_to_youtube=true -f from_timer=true -f mode="${{ inputs.mode || 'auto' }}"
 
   auto-clip:
     needs: preflight
@@ -125,6 +137,8 @@ jobs:
       COUNT: ${{ inputs.count || '1' }}
       TOP: ${{ inputs.top || '1' }}
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
+      MODE: ${{ inputs.mode || vars.AUTO_MODE || 'auto' }}
+      TOPIC: ${{ inputs.viceprint_topic || '' }}
       # scheduled runs upload only if repo variable AUTO_UPLOAD is true; timer and manual dispatch upload when upload_to_youtube or from_timer is true
       DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && (inputs.upload_to_youtube || inputs.from_timer)) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
       PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'public' }}
@@ -211,7 +225,8 @@ jobs:
           YT_PO_TOKEN: ${{ steps.pot_gen.outputs.po_token }}
           YT_VISITOR_DATA: ${{ steps.pot_gen.outputs.visitor_data }}
         run: |
-          ARGS=(--game "$GAME" --count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --tdl ./TwitchDownloaderCLI --out clips)
+          ARGS=(--game "$GAME" --count "$COUNT" --top "$TOP" --min-views "$MIN_VIEWS" --mode "$MODE" --tdl ./TwitchDownloaderCLI --out clips)
+          [ -n "$TOPIC" ] && ARGS+=(--topic "$TOPIC")
           [ "${{ inputs.list_only }}" = "true" ] && ARGS+=(--list)
           python3 auto_clips.py "${ARGS[@]}" || echo "No Shorts this time"
           rm -f youtube_cookies.txt

@@ -68,6 +68,7 @@ def decide(
     now=None,
     min_spacing_hours: float = DEFAULT_MIN_SPACING_HOURS,
     max_inline_wait_hours: float = DEFAULT_MAX_INLINE_WAIT_HOURS,
+    youtube_client=None,
 ) -> dict:
     """Pure decision function (no sleeping, no side effects) for testability."""
     now = now or datetime.now(timezone.utc)
@@ -77,18 +78,20 @@ def decide(
         records = json.loads(history.read_text(encoding="utf-8")) if history.exists() else []
     except Exception as exc:
         return {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                "last_video_id": None, "reason": f"fail-open: unreadable history ({exc})"}
+                "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
+                "reason": f"fail-open: unreadable history ({exc})"}
 
     rec, raw_ts = _last_valid_upload(records)
     if rec is None:
         return {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                "last_video_id": None, "reason": "no prior successful upload found; pipeline cleared"}
+                "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
+                "reason": "no prior successful upload found; pipeline cleared"}
 
     try:
         published_at = _parse_timestamp(raw_ts)
     except Exception as exc:
         return {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                "last_video_id": rec.get("video_id"),
+                "last_video_id": rec.get("video_id"), "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
                 "reason": f"fail-open: unparseable timestamp {raw_ts!r} ({exc})"}
 
     elapsed_hours = max((now - published_at).total_seconds() / 3600.0, 0.0)
@@ -96,17 +99,42 @@ def decide(
         elapsed_hours, min_spacing_hours, max_inline_wait_hours
     )
 
-    base = {"elapsed_hours": round(elapsed_hours, 2), "last_video_id": rec.get("video_id")}
-    if spacing["can_upload"]:
-        return {**base, "proceed": True, "sleep_seconds": 0, "reason": spacing["recommendation"]}
+    due_at = published_at + timedelta(hours=min_spacing_hours)
+    next_cron = f"{due_at.minute} {due_at.hour} * * *"
+
+    base = {"elapsed_hours": round(elapsed_hours, 2), "last_video_id": rec.get("video_id"), "next_cron": next_cron}
+    if not spacing["can_upload"] and not spacing["requires_spacing_sleep"]:
+        remaining = max(int(round((min_spacing_hours - elapsed_hours) * 3600)), 0)
+        return {**base, "proceed": False, "sleep_seconds": 0, "remaining_seconds": remaining,
+                "due_at": due_at.strftime("%Y-%m-%dT%H:%M:%SZ"), "reason": spacing["recommendation"]}
+
     if spacing["requires_spacing_sleep"]:
         return {**base, "proceed": True,
                 "sleep_seconds": min(spacing["spacing_sleep_seconds"], HARD_SLEEP_CAP_SECONDS),
+                "remaining_seconds": 0, "due_at": "",
                 "reason": spacing["recommendation"]}
-    remaining = max(int(round((min_spacing_hours - elapsed_hours) * 3600)), 0)
-    due_at = published_at + timedelta(hours=min_spacing_hours)
-    return {**base, "proceed": False, "sleep_seconds": 0, "remaining_seconds": remaining,
-            "due_at": due_at.strftime("%Y-%m-%dT%H:%M:%SZ"), "reason": spacing["recommendation"]}
+
+    # Layer 1 & Layer 2: check live channel performance when youtube_client is available
+    if youtube_client is not None:
+        try:
+            live = CandleGate().evaluate_live_channel(youtube_client=youtube_client, history_path=Path(history_path), now=now)
+            candle_eval = live.get("candle_evaluation", {}) if isinstance(live, dict) else {}
+            if candle_eval and not candle_eval.get("can_upload", True):
+                timer_sec = int(candle_eval.get("timer_seconds", 3600))
+                due_time = now + timedelta(seconds=timer_sec)
+                return {
+                    **base,
+                    "proceed": False,
+                    "sleep_seconds": 0,
+                    "remaining_seconds": timer_sec,
+                    "due_at": due_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "next_cron": f"{due_time.minute} {due_time.hour} * * *",
+                    "reason": candle_eval.get("recommendation", "Blocked by Candle Gate Layer 1/2"),
+                }
+        except Exception as exc:
+            print(f"⚠️ Live telemetry evaluation failed ({exc}); falling back to Layer 0 spacing.", flush=True)
+
+    return {**base, "proceed": True, "sleep_seconds": 0, "remaining_seconds": 0, "due_at": "", "reason": spacing["recommendation"]}
 
 
 def main() -> int:
@@ -117,14 +145,21 @@ def main() -> int:
 
     if bypass:
         result = {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                  "last_video_id": None,
+                  "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
                   "reason": "PREFLIGHT_BYPASS set (manual dispatch) — spacing gate bypassed"}
     else:
+        yt_client = None
         try:
-            result = decide()
+            from youtube_uploader import youtube_client
+            yt_client = youtube_client()
+        except Exception as exc:
+            print(f"⚠️ Skipping live Layer 1/2 check ({exc}); evaluating Layer 0 history only.", flush=True)
+        try:
+            result = decide(youtube_client=yt_client)
         except Exception as exc:  # belt-and-braces fail-open
             result = {"proceed": True, "sleep_seconds": 0, "elapsed_hours": None,
-                      "last_video_id": None, "reason": f"fail-open: unexpected gate error ({exc})"}
+                      "last_video_id": None, "remaining_seconds": 0, "due_at": "", "next_cron": "0 * * * *",
+                      "reason": f"fail-open: unexpected gate error ({exc})"}
 
     if result["proceed"] and result["sleep_seconds"] > 0:
         print(f"⏱️ Inline spacing sleep: {result['sleep_seconds'] // 60}m "
@@ -135,7 +170,7 @@ def main() -> int:
     icon = "✅ PROCEED" if result["proceed"] else "🛑 SKIP"
     print(f"{icon} | elapsed={result['elapsed_hours']}h | last_upload={result['last_video_id']}")
     if not result["proceed"] and result.get("due_at"):
-        print(f"⏰ Next upload due at {result['due_at']} ({result['remaining_seconds']}s from now)")
+        print(f"⏰ Next upload due at {result['due_at']} ({result['remaining_seconds']}s from now, cron: '{result.get('next_cron')}')")
     print(result["reason"])
 
     out_file = os.environ.get("GITHUB_OUTPUT")
@@ -145,6 +180,7 @@ def main() -> int:
             f.write(f"sleep_seconds={result['sleep_seconds']}\n")
             f.write(f"remaining_seconds={result.get('remaining_seconds', 0)}\n")
             f.write(f"due_at={result.get('due_at', '')}\n")
+            f.write(f"next_cron={result.get('next_cron', '0 * * * *')}\n")
 
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

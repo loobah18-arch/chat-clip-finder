@@ -79,11 +79,11 @@ def parse_args(argv=None):
     p.add_argument("--bucket", type=int, default=10)
     p.add_argument("--skip-start", type=int, default=120)
     p.add_argument("--skip-end", type=int, default=60)
-    p.add_argument("--layout", default="stack", choices=["auto", "stack", "gameplay", "blur", "crop"])
+    p.add_argument("--layout", default="stack", choices=["auto", "stack", "gameplay", "viceprint", "blur", "crop"])
     p.add_argument("--require-cam", action="store_true", default=True, help="skip candidate if no webcam detected")
     p.add_argument("--no-require-cam", dest="require_cam", action="store_false")
     p.add_argument("--cam", default="auto", choices=["auto", "top-left", "top-right", "bottom-left", "bottom-right"])
-    p.add_argument("--captions", default="ig-comment", choices=["ig-comment", "word", "on", "off"])
+    p.add_argument("--captions", default="ig-comment", choices=["ig-comment", "word", "viceprint", "on", "off"])
     p.add_argument("--whisper-model", default="small")
     p.add_argument("--lang")
     p.add_argument("--hook", default="")
@@ -279,6 +279,9 @@ def main(argv=None):
             sys.exit(3)
 
         # Early check for webcam if required to avoid wasted whisper and render time
+        if a.layout == "viceprint":
+            a.require_cam = False
+
         if a.require_cam:
             layout, cam = render.choose_layout(a.layout, a.cam, piece, src_w, src_h, require_cam=True)
             if not layout:
@@ -303,7 +306,15 @@ def main(argv=None):
         coherence = chatmod.score_moment(words, peak_db, snapped_dur)
         print(f"   🎯 Highlight accuracy & coherence score: {coherence}/100", flush=True)
 
-        caption_style = "word" if a.captions == "word" else ("off" if a.captions == "off" else "ig-comment")
+        if a.captions == "viceprint" or a.layout == "viceprint":
+            caption_style = "viceprint"
+        elif a.captions == "word":
+            caption_style = "word"
+        elif a.captions == "off":
+            caption_style = "off"
+        else:
+            caption_style = "ig-comment"
+
         ig_comment = m.get("ig_comment")
         if caption_style == "ig-comment" and ig_comment:
             print(f"   💬 Instagram comment sticker: \"{ig_comment['text']}\" (@{ig_comment['username']})", flush=True)

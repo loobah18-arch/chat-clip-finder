@@ -360,6 +360,46 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertIn("height>=720", src)
         self.assertNotIn("/18/b", src)
 
+    def test_viceprint_layout_and_video_graph(self):
+        from ccf.render import choose_layout, video_graph
+        layout, cam = choose_layout("viceprint", "auto", None, 1920, 1080, require_cam=True)
+        self.assertEqual(layout, "viceprint")
+        self.assertIsNone(cam)
+
+        graph, cap_y, credit_v = video_graph("viceprint", 1920, 1080)
+        self.assertIn("overlay=0:420", graph)
+        self.assertIn("scale=1080:1080", graph)
+        self.assertIn("boxblur=30:3", graph)
+        self.assertEqual(cap_y, 620)
+        self.assertEqual(credit_v, 340)
+
+    def test_viceprint_ass_builder(self):
+        from ccf.captions import build_ass
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_ass = Path(tmpdir) / "viceprint.ass"
+            words = [
+                {"w": "SECRET", "s": 0.0, "e": 0.4},
+                {"w": "GTA", "s": 0.45, "e": 0.8},
+                {"w": "WORKOUT", "s": 0.85, "e": 1.2},
+            ]
+            build_ass(out_ass, words, duration=55.0, hook="SECRET WORKOUT", style="viceprint", credit="@grandtheftclipper")
+            content = out_ass.read_text(encoding="utf-8")
+            self.assertIn("@grandtheftclipper", content)
+            self.assertIn("SECRET", content)
+            self.assertIn("Cap", content)
+
+    def test_viceprint_topics_catalog(self):
+        from ccf import viceprint
+        self.assertGreaterEqual(len(viceprint.VICEPRINT_TOPICS), 5)
+        top = viceprint.pick_topic()
+        self.assertTrue(top["title"].startswith("Get STRONGER FAST in GTA 6"))
+        self.assertIn("tags", top)
+        self.assertIn("script", top)
+
+        # Rotation test: avoid already uploaded topics
+        rotated = viceprint.pick_topic(history_records=[{"title": top["title"]}])
+        self.assertNotEqual(rotated["id"], top["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

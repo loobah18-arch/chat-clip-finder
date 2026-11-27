@@ -119,6 +119,24 @@ class TestPreflightDecide(unittest.TestCase):
         self.assertTrue(res["proceed"])
         self.assertIn("fail-open", res["reason"])
 
+    def test_live_youtube_client_layer1_blocks_when_spacing_cleared(self):
+        # 28h elapsed (clears Layer 0), but live YouTube client reports viral velocity (>2.5k views/hr)
+        from unittest.mock import MagicMock
+        self.write([entry(ts=(NOW - timedelta(hours=28)).isoformat())])
+        mock_client = MagicMock()
+        mock_client.videos().list().execute.return_value = {
+            "items": [{
+                "id": "r-PaWu5OVgs",
+                "snippet": {"title": "Test Short", "publishedAt": (NOW - timedelta(hours=28)).isoformat()},
+                "statistics": {"viewCount": "100000"},
+            }]
+        }
+        res = decide(self.path, NOW, youtube_client=mock_client)
+        self.assertFalse(res["proceed"])
+        self.assertEqual(res["sleep_seconds"], 0)
+        self.assertGreater(res["remaining_seconds"], 0)
+        self.assertIn("Active push in progress", res["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,7 +59,7 @@ TWITCH_GAMEPLAY_RE = re.compile(
 VICEPRINT_TOPICS = [
     {
         "id": "secret_workout",
-        "title": "Get STRONGER FAST in GTA 6! (Secret Workout) #Shorts #GTA6",
+        "title": "The GTA 6 Strength Detail Nobody Talks About #Shorts #GTA6",
         "hook": "",
         "script": (
             "Here's how to make Jason way tougher in GTA 6, and most players have no idea this exists! "
@@ -549,8 +549,38 @@ def detect_active_box(
     return cx, cy, max(2, cw), max(2, ch)
 
 
-def validate_gameplay_segment(video_path: Path) -> Tuple[bool, str, Optional[Tuple[int, int, int, int]]]:
-    """Rejects movie trailers (ultrawide letterbox), static black frames, and centered talking-head cams."""
+def _opens_on_black(video_path: Path, seconds: float = 0.5, threshold: float = 20.0):
+    """(is_black, peak_luma) for the first `seconds` of the clip. Needs opencv."""
+    try:
+        import cv2
+    except ImportError:
+        return False, None
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        means: List[float] = []
+        for _ in range(max(1, int(round(fps * seconds)))):
+            ok, frame = cap.read()
+            if not ok:
+                break
+            means.append(float(frame.mean()))
+    finally:
+        cap.release()
+    if not means:
+        return False, None
+    peak = max(means)
+    return peak < threshold, peak
+
+
+def validate_gameplay_segment(
+    video_path: Path, allow_facecam: bool = False
+) -> Tuple[bool, str, Optional[Tuple[int, int, int, int]]]:
+    """Rejects trailers (ultrawide letterbox), black openings, and streamer webcams.
+
+    The Viceprint formula is clean gameplay only, so any stable webcam overlay is
+    rejected unless the caller explicitly allows one. A clip that opens on a black
+    frame is rejected too: the first second is the only one most viewers see.
+    """
     video_path = Path(video_path)
     src_w, src_h, dur = render.probe(video_path)
     if dur < 3.5:
@@ -566,13 +596,21 @@ def validate_gameplay_segment(video_path: Path) -> Tuple[bool, str, Optional[Tup
     if ah < src_h * 0.78 and (aw / max(1, ah)) >= 2.02:
         return False, f"ultrawide cinema letterbox detected ({aw}x{ah} in {src_w}x{src_h})", None
 
-    # Reject centered or fullscreen facecam / talking-head react layouts
+    # Reject streamer webcams. Centered/dominant ones are always wrong; a small
+    # corner cam is wrong too unless the caller is clipping a streamer on purpose.
     cam = facecam.detect(video_path)
     if cam:
         cx, _cy, cw, ch = cam
         cam_mid_x = (cx + cw / 2.0) / max(1, src_w)
-        if 0.24 <= cam_mid_x <= 0.76 or cw > 0.45 * src_w or ch > 0.55 * src_h:
+        centered = 0.24 <= cam_mid_x <= 0.76 or cw > 0.45 * src_w or ch > 0.55 * src_h
+        if centered:
             return False, f"centered/dominant facecam reaction detected at x={cx}..{cx+cw}", None
+        if not allow_facecam:
+            return False, f"streamer webcam in frame at x={cx}..{cx+cw} (viceprint needs clean gameplay)", None
+
+    black, peak = _opens_on_black(video_path)
+    if black:
+        return False, f"opens on a black frame (peak luma {peak:.0f})", None
 
     return True, "ok", (ax, ay, aw, ah)
 
@@ -761,7 +799,7 @@ def create_viceprint_post(
         "description": description,
         "tags": tags,
         "layout": "viceprint",
-        "coherence_score": 96,
+        "words_per_second": round(float(words_count) / float(duration), 2) if duration else 0.0,
         "mode": "viceprint",
         "duration": round(float(duration), 2),
         "words_count": words_count,

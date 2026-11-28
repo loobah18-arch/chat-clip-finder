@@ -78,7 +78,7 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30, active_box=None):
              f"boxblur=30:3,eq=brightness=-0.10:contrast=1.05:saturation=1.28[bg];"
              f"{fg_crop},scale=1080:1080,"
              f"unsharp=3:3:0.5:3:3:0.0,eq=contrast=1.05:saturation=1.10,setsar=1[fg];"
-             f"[bg][fg]overlay=0:{top},fps={fps}[base]")
+             f"[bg][fg]overlay=0:{top},setsar=1,fps={fps}[base]")
         return g, top + 160, 0
     if layout == "gameplay":
         fw = min(src_w, src_h) // 2 * 2       # square centre of the action, zoomed
@@ -164,7 +164,11 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
            "-map", f"[{last}]", "-map", "0:a?",
            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{dur:.3f}", str(out_path)]
+           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+           # Drop the source's own title/artist/comment/chapters: a clip must not
+           # carry the stream it came from (it contradicted the title we publish).
+           "-map_metadata", "-1", "-map_chapters", "-1", "-dn", "-sn",
+           "-t", f"{dur:.3f}", str(out_path)]
     res = subprocess.run(cmd)
     if res.returncode != 0:
         raise RuntimeError(f"ffmpeg render failed for {piece}")

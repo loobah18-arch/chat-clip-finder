@@ -148,8 +148,9 @@ jobs:
       MIN_VIEWS: ${{ inputs.min_views || '1000' }}
       MODE: ${{ inputs.mode || vars.AUTO_MODE || 'auto' }}
       TOPIC: ${{ inputs.viceprint_topic || '' }}
-      # scheduled runs upload only if repo variable AUTO_UPLOAD is true; timer and manual dispatch upload when upload_to_youtube or from_timer is true
-      DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && (inputs.upload_to_youtube || inputs.from_timer)) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD == 'true') }}
+      # Uploads are ON by default: scheduled runs upload unless the repo variable AUTO_UPLOAD
+      # says 'false'; manual and timer runs upload when upload_to_youtube/from_timer is true.
+      DO_UPLOAD: ${{ (github.event_name == 'workflow_dispatch' && (inputs.upload_to_youtube || inputs.from_timer)) || (github.event_name == 'schedule' && vars.AUTO_UPLOAD != 'false') }}
       PRIVACY: ${{ inputs.privacy || vars.AUTO_PRIVACY || 'public' }}
     steps:
       - name: 🛡️ Launch bgutil PO Token Provider Container
@@ -173,7 +174,9 @@ jobs:
       - name: Install FFmpeg + Python packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fontconfig fonts-montserrat fonts-noto-color-emoji
+          # tesseract-ocr feeds ccf/gamecheck.py: the on-screen text check that stops a
+          # mislabeled stream (e.g. Naraka under a GTA 6 title) from being published.
+          sudo apt-get install -y ffmpeg fontconfig fonts-montserrat fonts-noto-color-emoji tesseract-ocr
           sudo fc-cache -f 2>/dev/null || true
           pip install -U --pre yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
           pip install -r requirements.txt
@@ -275,8 +278,16 @@ jobs:
           [ "${{ inputs.force_upload }}" = "true" ] && EXTRA+=(--force)
           RC=0
           python3 youtube_uploader.py --posts clips/posts.json --max 1 --privacy "$PRIVACY" "${EXTRA[@]}" || RC=$?
-          if [ "$RC" -eq 2 ]; then echo "⏸️ Upload deferred by the Candle Gate (protecting the last Short)."
-          elif [ "$RC" -ne 0 ]; then exit $RC; fi
+          # One visible decision per outcome instead of a silent yes/no.
+          case "$RC" in
+            0) echo "✅ Uploaded to YouTube ($PRIVACY)"
+               echo "### ✅ Uploaded to YouTube ($PRIVACY)" >> "$GITHUB_STEP_SUMMARY" ;;
+            2) echo "⏸️ Upload deferred by the Candle Gate (protecting the last Short)."
+               echo "### ⏸️ Upload deferred by the Candle Gate" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::YouTube upload failed (uploader exit $RC). See the log above."
+               echo "### ❌ YouTube upload failed (exit $RC)" >> "$GITHUB_STEP_SUMMARY"
+               exit "$RC" ;;
+          esac
 
       - name: Save state (clipped videos, upload history, candle gate)
         if: ${{ always() && !inputs.list_only }}

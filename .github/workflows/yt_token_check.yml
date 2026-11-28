@@ -1,0 +1,29 @@
+name: YouTube token check
+
+# Proves whether the OAuth secrets can still mint an access token. Read-only:
+# it exchanges the refresh token, prints the granted scopes and the channel,
+# and never uploads anything.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: 🔑 Refresh token → access token
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: python3 -m pip install --quiet requests
+
+      - name: Check the refresh token
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID || secrets.YOUTUBE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET || secrets.YOUTUBE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN || secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python3 check_yt_token.py

@@ -3,7 +3,8 @@ yt-dlp>=2025.1.1          # YouTube / Twitch segment + chat download
 faster-whisper>=1.0.0     # word-by-word captions (CPU is fine)
 numpy
 Pillow>=10.0.0
-opencv-python-headless>=4.8   # webcam detection (YuNet)
+opencv-python-headless>=4.8   # webcam detection (YuNet) + black-frame / on-screen checks
+pytesseract>=0.3.10           # reads on-screen text for the game-identity check (needs tesseract-ocr)
 edge-tts>=6.1.0               # Viceprint formula fast narration voiceover
 # Uploading to YouTube:
 google-api-python-client

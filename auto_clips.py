@@ -28,6 +28,11 @@ from ccf import captions, discover, sources
 STATE = Path("state/processed.json")
 EXIT_NO_CLIPS = 3
 
+# Added to every Viceprint description: the narration is synthetic and the claim is not
+# official Rockstar information. Cheaper than a takedown and honest about what this is.
+DISCLOSURE = ("AI-narrated fan-made short. Details are speculative, not official Rockstar information. "
+              "Footage is credited to its source below.")
+
 
 def load_state() -> Dict[str, Any]:
     try:
@@ -117,7 +122,7 @@ def produce_viceprint_short(
     tdl: str = "TwitchDownloaderCLI",
 ) -> List[Dict[str, Any]]:
     """Discovers fresh GTA 6 secret/gameplay footage and renders an unbranded Viceprint Short."""
-    from ccf import render, viceprint
+    from ccf import gamecheck, render, viceprint
 
     out_dir.mkdir(parents=True, exist_ok=True)
     records = _load_upload_history()
@@ -168,6 +173,9 @@ def produce_viceprint_short(
                 ok_seg, reason, _ = viceprint.validate_gameplay_segment(downloaded)
                 if not ok_seg:
                     raise RuntimeError(f"Segment rejected: {reason}")
+                ok_game, game_reason = gamecheck.verify_clip(downloaded)
+                if not ok_game:
+                    raise RuntimeError(f"Segment rejected: {game_reason}")
                 _, _, raw_dur = render.probe(downloaded)
                 words = captions.transcribe(downloaded, model_size=whisper_model)
                 print(f"   Transcribed {len(words)} spoken words in segment.", flush=True)
@@ -187,6 +195,11 @@ def produce_viceprint_short(
                         print(f"   ⚠️ Rejecting burst {b_i + 1}: {reason}", flush=True)
                         dl_path.unlink(missing_ok=True)
                         continue
+                    ok_game, game_reason = gamecheck.verify_clip(dl_path)
+                    if not ok_game:
+                        print(f"   ⚠️ Rejecting burst {b_i + 1}: {game_reason}", flush=True)
+                        dl_path.unlink(missing_ok=True)
+                        continue
                     burst_clips.append(dl_path)
 
                 if not burst_clips or (len(windows) > 1 and len(burst_clips) < 2):
@@ -202,7 +215,7 @@ def produce_viceprint_short(
                     duration=dur, caption_style="viceprint"
                 )
                 title = viceprint._clean_viceprint_title(cand["title"])
-                desc = f"{title}\n\n#Shorts #GTA6 #Gaming"
+                desc = f"{title}\n\n{DISCLOSURE}\nSource: {cand['url']}\n\n#Shorts #GTA6 #Gaming"
                 tags = ["gta 6", "gta 6 secrets", "gta 6 tips", "gta 6 gameplay", "gaming", "shorts"]
                 wc = len(words)
             else:
@@ -226,7 +239,7 @@ def produce_viceprint_short(
                     duration=dur, caption_style="viceprint"
                 )
                 title = topic["title"]
-                desc = f"{topic['script']}\n\n#Shorts #GTA6 #Gaming"
+                desc = f"{topic['script']}\n\n{DISCLOSURE}\nSource: {cand['url']}\n\n#Shorts #GTA6 #Gaming"
                 tags = topic["tags"]
                 wc = len(n_words)
 

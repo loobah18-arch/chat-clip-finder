@@ -150,7 +150,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,7,4,5,40,40,0,1
+Style: Cap,{font},96,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,8,4,5,40,40,0,1
 Style: Hook,{hook_font},64,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,22,0,8,90,90,170,1
 Style: Credit,{font},36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,1,0,1,3,1,8,40,40,{credit_v},1
 Style: Card,Montserrat Black,10,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
@@ -187,22 +187,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     elif style == "viceprint":
         # Viceprint formula: unbranded minimalist layout with kinetic 1-2 word popping captions
         pos = rf"\pos(540,{caption_y})"
-        groups = group_words(words, max_words=2, max_chars=14)
+        groups = group_words(words, max_words=2, max_chars=12, max_gap=0.35)
         for gi, g in enumerate(groups):
             nxt = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else duration
-            g_end = min(duration, nxt, g[-1]["e"] + 0.25)
+            g_end = min(duration, nxt, g[-1]["e"] + 0.20)
             for i, w in enumerate(g):
                 s = w["s"]
                 e = g[i + 1]["s"] if i + 1 < len(g) else g_end
-                if e - s < 0.05:
+                if e - s < 0.04:
                     continue
                 parts = []
                 for j, x in enumerate(g):
                     if j == i:
-                        parts.append(r"{\c" + HIGHLIGHT + r"\fscx115\fscy115}" + x["w"] + r"{\c" + WHITE + r"\fscx100\fscy100}")
+                        parts.append(r"{\c" + HIGHLIGHT + r"\fscx114\fscy114}" + x["w"] + r"{\c" + WHITE + r"\fscx100\fscy100}")
                     else:
                         parts.append(x["w"])
-                pop = r"{\fscx90\fscy90\t(0,80,\fscx100\fscy100)}" if i == 0 else ""
+                pop = r"{\fscx88\fscy88\t(0,75,\fscx100\fscy100)}" if i == 0 else ""
                 ev.append(f"Dialogue: 1,{_ts(s)},{_ts(e)},Cap,,0,0,0,,{{{pos}}}{pop}{' '.join(parts)}")
         hook = _clean(hook or "")
         if hook:

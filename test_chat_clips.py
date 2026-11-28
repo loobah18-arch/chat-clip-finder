@@ -416,6 +416,93 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertFalse(viceprint.is_viceprint_candidate("GTA 6 Trailer 2 Official Breakdown & Release Date"))
         self.assertFalse(viceprint.is_viceprint_candidate("GTA 5 Secret Workout Trick"))
 
+    def test_viceprint_twitch_filter_and_gta6_exclusive(self):
+        from unittest.mock import patch
+        from ccf import viceprint
+        # Must reject variety react/vs/trailer titles and non-GTA6 titles
+        self.assertFalse(viceprint.is_viceprint_twitch_candidate("KAI VS SPEED: FIRST TO MAKE A MILLION DOLLARS IN GTA 6", strict_gameplay=False))
+        self.assertFalse(viceprint.is_viceprint_twitch_candidate("Reacting to GTA 6 Trailer!", strict_gameplay=False))
+        self.assertFalse(viceprint.is_viceprint_twitch_candidate("GTA V RP Chaos Gameplay", strict_gameplay=False))
+        self.assertTrue(viceprint.is_viceprint_twitch_candidate("GTA 6 Full Playthrough Story Mode 100%", strict_gameplay=True))
+
+        # Verify discover_viceprint_candidates strictly queries Grand Theft Auto VI (never GTA V)
+        seen_games = []
+        def fake_twitch_top(game_name="Grand Theft Auto VI", n=20, logins=()):
+            seen_games.append(game_name)
+            return []
+        with patch("ccf.discover._ytdlp_flat", return_value=[]), \
+             patch("ccf.discover.twitch_top", side_effect=fake_twitch_top):
+            viceprint.discover_viceprint_candidates(count=5)
+        self.assertEqual(seen_games, ["Grand Theft Auto VI"])
+
+    def test_viceprint_path_a_density_gate_and_segments(self):
+        import auto_clips
+        from ccf import viceprint
+
+        # 37 sparse words over 52s (Avengers trailer bug) MUST return False -> forces Path B narration
+        sparse_words = [{"w": f"W{i}", "s": i * 1.4, "e": i * 1.4 + 0.3} for i in range(37)]
+        self.assertFalse(auto_clips._is_dense_guide_speech(sparse_words, 52.5))
+
+        # Continuous ~150 WPM guide narration returns True
+        dense_words = [{"w": f"W{i}", "s": 0.2 + i * 0.4, "e": 0.2 + i * 0.4 + 0.35} for i in range(120)]
+        self.assertTrue(auto_clips._is_dense_guide_speech(dense_words, 50.0))
+
+        # Multi-burst planner spreads timestamps deep inside VOD (skipping early stream intros)
+        segs = viceprint.pick_best_segments(14400.0, n_segments=4, seg_len=16.0)
+        self.assertGreaterEqual(len(segs), 4)
+        self.assertTrue(all(s >= 3000.0 for s, _e in segs))
+
+    def test_viceprint_validation_strips_trailers_and_centered_cams(self):
+        from unittest.mock import patch
+        from ccf import render, viceprint
+
+        # 1. Reject 2.39:1 ultrawide cinema trailer inside 16:9
+        with patch("ccf.render.probe", return_value=(1920, 1080, 16.0)), \
+             patch("ccf.viceprint.detect_active_box", return_value=(0, 140, 1920, 800)):
+            ok, reason, _ = viceprint.validate_gameplay_segment(Path("dummy.mp4"))
+            self.assertFalse(ok)
+            self.assertIn("ultrawide", reason)
+
+        # 2. Reject centered talking-head webcam
+        with patch("ccf.render.probe", return_value=(1920, 1080, 16.0)), \
+             patch("ccf.viceprint.detect_active_box", return_value=(0, 0, 1920, 1080)), \
+             patch("ccf.facecam.detect", return_value=(700, 200, 520, 400)):
+            ok, reason, _ = viceprint.validate_gameplay_segment(Path("dummy.mp4"))
+            self.assertFalse(ok)
+            self.assertIn("facecam", reason)
+
+        # 3. Clean 16:9 gameplay with optional far-corner cam (excluded from 1:1 center) passes
+        with patch("ccf.render.probe", return_value=(1920, 1080, 16.0)), \
+             patch("ccf.viceprint.detect_active_box", return_value=(0, 0, 1920, 1080)), \
+             patch("ccf.facecam.detect", return_value=(20, 20, 320, 220)):
+            ok, _reason, box = viceprint.validate_gameplay_segment(Path("dummy.mp4"))
+            self.assertTrue(ok)
+            self.assertEqual(box, (0, 0, 1920, 1080))
+
+        # Borderless active_box crop works in video_graph
+        g, _, _ = render.video_graph("viceprint", 1920, 1080, active_box=(0, 120, 1920, 840))
+        self.assertIn("crop=840:840:", g)
+
+    def test_viceprint_script_alignment_and_bgm(self):
+        from ccf import viceprint
+        self.assertTrue(viceprint.DEFAULT_BGM_PATH.is_file())
+        script = "Here is twenty percent power in GTA 6 right now!"
+        whisper_words = [
+            {"w": "Here", "s": 0.1, "e": 0.3},
+            {"w": "is", "s": 0.32, "e": 0.45},
+            {"w": "20%", "s": 0.5, "e": 0.9},
+            {"w": "power", "s": 0.95, "e": 1.3},
+            {"w": "in", "s": 1.35, "e": 1.5},
+            {"w": "GTA", "s": 1.55, "e": 1.8},
+            {"w": "6", "s": 1.85, "e": 2.0},
+            {"w": "right", "s": 2.05, "e": 2.3},
+            {"w": "now", "s": 2.35, "e": 2.6},
+        ]
+        aligned = viceprint.align_script_words(script, whisper_words, 2.8)
+        self.assertEqual(len(aligned), 10)
+        self.assertEqual(aligned[-1]["w"], "NOW!")
+        self.assertEqual(aligned[6]["w"], "GTA")
+
     def test_auto_clips_dual_mode_and_cli_entry(self):
         import auto_clips
         with tempfile.TemporaryDirectory() as tmpdir:

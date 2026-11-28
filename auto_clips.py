@@ -16,6 +16,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -77,10 +78,32 @@ def _uploaded_source_ids(records: List[Dict[str, Any]]) -> set:
     ids = set()
     for rec in records:
         src = str(rec.get("source_url") or "")
+        mtw = re.search(r"twitch\.tv/videos/(\d+)", src)
+        if mtw:
+            ids.add(f"tw:{mtw.group(1)}")
+            continue
         m = re.search(r"(?:v=|youtu\.be/|videos/)([A-Za-z0-9_-]{6,15})", src)
         if m:
             ids.add(f"yt:{m.group(1)}")
     return ids
+
+
+def _is_dense_guide_speech(words: List[Dict[str, Any]], raw_dur: float) -> bool:
+    """True only when audio has continuous guide/secret narration (>=115 WPM, no big silent gaps)."""
+    min_words = max(95, int(max(10.0, float(raw_dur)) * 1.9))
+    if len(words) < min_words:
+        return False
+    if float(words[0].get("s", 99.0)) > 3.5:
+        return False
+    prev_end = float(words[0].get("e", 0.0))
+    for w in words[1:]:
+        s = float(w.get("s", prev_end))
+        if s - prev_end > 4.5:
+            return False
+        prev_end = max(prev_end, float(w.get("e", s)))
+    if float(raw_dur) - prev_end > 6.0:
+        return False
+    return True
 
 
 def produce_viceprint_short(
@@ -99,10 +122,11 @@ def produce_viceprint_short(
     out_dir.mkdir(parents=True, exist_ok=True)
     records = _load_upload_history()
     seen_ids = {k for k, v in state.items() if isinstance(v, dict) and v.get("ok", False)} | _uploaded_source_ids(records)
+    topic = viceprint.pick_topic(records, preferred_id=topic_id)
 
     print("🔎 Searching for fresh GTA 6 secrets, tips & gameplay footage for Viceprint mode...", flush=True)
     candidates = viceprint.discover_viceprint_candidates(
-        count=12, seen_ids=seen_ids, cookies=cookies, proxy=proxy
+        count=12, seen_ids=seen_ids, cookies=cookies, proxy=proxy, extra_query=topic.get("search_query")
     )
     if not candidates:
         print("   ! No fresh Viceprint candidates found after filtering.", flush=True)
@@ -128,32 +152,52 @@ def produce_viceprint_short(
         print(f"\n🎬 [Viceprint Candidate {idx}/{len(candidates)}] {cand['title']}\n   {cand['url']}", flush=True)
 
         try:
-            start_s, end_s = viceprint.pick_best_segment(
-                cand["url"], cand.get("duration", 0), cand_dir, target_len=54.0, cookies=cookies, proxy=proxy
-            )
-            print(f"   Downloading segment {start_s:.1f}s -> {end_s:.1f}s via cascading HD tiers...", flush=True)
-            sources.download_section(cand["url"], start_s, end_s, piece, cookies=cookies, proxy=proxy, tdl=tdl)
-
-            src_w, src_h, raw_dur = render.probe(piece)
-            if src_h < 360:
-                print(f"   ! Skipping candidate: resolution {src_w}x{src_h} < 360p", flush=True)
-                piece.unlink(missing_ok=True)
-                state[cand["id"]] = {"title": cand["title"], "url": cand["url"], "at": int(time.time()), "ok": False}
-                save_state(state)
-                continue
-            if src_h < 720:
-                print(f"   ℹ️ Notice: Source resolution is {src_w}x{src_h}; upscaling cleanly to 1080x1080 with unsharp enhancement.", flush=True)
-
-            words = captions.transcribe(piece, model_size=whisper_model)
-            print(f"   Transcribed {len(words)} spoken words in segment.", flush=True)
-
+            is_twitch = cand.get("platform") == "twitch"
             out_short = out_dir / f"viceprint_{cand['id'].replace(':', '_')}.mp4"
-            if not topic_id and len(words) >= 35:
-                # Path A: Video already contains clear spoken guide/explanation -> snap & style cleanly
+            use_path_a = False
+            burst_clips: List[Path] = []
+            words: List[Dict[str, Any]] = []
+            raw_dur = 0.0
+
+            if not is_twitch and not topic_id:
+                start_s, end_s = viceprint.pick_best_segment(
+                    cand["url"], cand.get("duration", 0), cand_dir, target_len=54.0, cookies=cookies, proxy=proxy
+                )
+                print(f"   Downloading segment {start_s:.1f}s -> {end_s:.1f}s via cascading HD tiers...", flush=True)
+                downloaded = sources.download_section(cand["url"], start_s, end_s, piece, cookies=cookies, proxy=proxy, tdl=tdl)
+                ok_seg, reason, _ = viceprint.validate_gameplay_segment(downloaded)
+                if not ok_seg:
+                    raise RuntimeError(f"Segment rejected: {reason}")
+                _, _, raw_dur = render.probe(downloaded)
+                words = captions.transcribe(downloaded, model_size=whisper_model)
+                print(f"   Transcribed {len(words)} spoken words in segment.", flush=True)
+                use_path_a = _is_dense_guide_speech(words, raw_dur)
+                burst_clips = [downloaded]
+            else:
+                windows = viceprint.pick_best_segments(cand.get("duration", 0), n_segments=4, seg_len=16.0)
+                print(f"   Sampling {len(windows)} spread gameplay windows (skipping intros & react trailers)...", flush=True)
+                for b_i, (start_s, end_s) in enumerate(windows):
+                    if len(burst_clips) >= 4:
+                        break
+                    burst_target = cand_dir / f"burst_{b_i:02d}.mp4"
+                    print(f"   Downloading burst {b_i + 1}: {start_s:.1f}s -> {end_s:.1f}s...", flush=True)
+                    dl_path = sources.download_section(cand["url"], start_s, end_s, burst_target, cookies=cookies, proxy=proxy, tdl=tdl)
+                    ok_seg, reason, _ = viceprint.validate_gameplay_segment(dl_path)
+                    if not ok_seg:
+                        print(f"   ⚠️ Rejecting burst {b_i + 1}: {reason}", flush=True)
+                        dl_path.unlink(missing_ok=True)
+                        continue
+                    burst_clips.append(dl_path)
+
+                if not burst_clips or (len(windows) > 1 and len(burst_clips) < 2):
+                    raise RuntimeError(f"Insufficient valid GTA 6 gameplay bursts ({len(burst_clips)} valid)")
+
+            if use_path_a:
+                # Path A: Verified YouTube GTA 6 spoken guide with dense continuous commentary
                 dur = captions.snap_speech_boundaries(words, min(raw_dur, 57.0), min_duration=38.0)
-                print(f"   Snapped spoken clip to {dur:.1f}s; rendering unbranded Viceprint layout...", flush=True)
+                print(f"   [Path A] Dense YouTube guide verified ({len(words)} words); rendering {dur:.1f}s...", flush=True)
                 render.render(
-                    piece, out_short, layout="viceprint", words=words,
+                    burst_clips[0], out_short, layout="viceprint", words=words,
                     hook="", credit="", progress_bar=True, require_cam=False,
                     duration=dur, caption_style="viceprint"
                 )
@@ -162,21 +206,20 @@ def produce_viceprint_short(
                 tags = ["gta 6", "gta 6 secrets", "gta 6 tips", "gta 6 gameplay", "gaming", "shorts"]
                 wc = len(words)
             else:
-                # Path B: No-commentary gameplay or explicit --topic -> edge-tts + fast 3s jumpcuts + ducked game audio
-                topic = viceprint.pick_topic(records, preferred_id=topic_id)
-                print(f"   Applying Viceprint narration & 3s jump-cuts for topic: '{topic['title']}'", flush=True)
+                # Path B: Multi-scene 3.2s jumpcuts + fast ~180 WPM edge-tts narration + ducked BGM
+                print(f"   [Path B] Applying Viceprint narration & multi-scene 3.2s jump-cuts for topic: '{topic['title']}'", flush=True)
                 narration_mp3 = cand_dir / "narration.mp3"
                 n_words, dur = viceprint.synthesize_narration(topic["script"], narration_mp3)
                 jumpcut_vid = cand_dir / "jumpcut.mp4"
-                viceprint.build_viceprint_jumpcuts(piece, dur + 0.5, jumpcut_vid, cut_sec=3.0)
+                keep_game_aud = not is_twitch  # mute Twitch voice chat/mic; only mix clean non-vocal YT game SFX
+                viceprint.build_viceprint_jumpcuts(
+                    burst_clips, dur + 0.5, jumpcut_vid, cut_sec=3.2, keep_audio=keep_game_aud
+                )
 
                 mixed_input = cand_dir / "mixed_input.mp4"
-                mix_cmd = [
-                    "ffmpeg", "-y", "-loglevel", "error", "-i", str(jumpcut_vid), "-i", str(narration_mp3),
-                    "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                    "-t", f"{dur:.2f}", str(mixed_input)
-                ]
-                subprocess.run(mix_cmd, check=True)
+                viceprint.mix_viceprint_audio(
+                    jumpcut_vid, narration_mp3, mixed_input, duration=dur, keep_game_audio=keep_game_aud
+                )
                 render.render(
                     mixed_input, out_short, layout="viceprint", words=n_words,
                     hook="", credit="", progress_bar=True, require_cam=False,
@@ -192,7 +235,7 @@ def produce_viceprint_short(
                 "url": cand["url"], "at": int(time.time()), "ok": True, "mode": "viceprint"
             }
             save_state(state)
-            piece.unlink(missing_ok=True)
+            shutil.rmtree(cand_dir, ignore_errors=True)
             post = viceprint.create_viceprint_post(
                 out_short, title=title, description=desc, tags=tags,
                 words_count=wc, duration=dur, source_url=cand["url"]
@@ -207,7 +250,7 @@ def produce_viceprint_short(
             print(f"   ! Candidate failed ({exc}); trying next candidate...", flush=True)
             state[cand["id"]] = {"title": cand["title"], "url": cand["url"], "at": int(time.time()), "ok": False}
             save_state(state)
-            piece.unlink(missing_ok=True)
+            shutil.rmtree(cand_dir, ignore_errors=True)
 
     return []
 

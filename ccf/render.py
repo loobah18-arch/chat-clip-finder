@@ -50,7 +50,7 @@ def choose_layout(layout, cam_pos, piece, src_w, src_h, require_cam=True):
     return layout, None
 
 
-def video_graph(layout, src_w, src_h, cam=None, fps=30):
+def video_graph(layout, src_w, src_h, cam=None, fps=30, active_box=None):
     """(filter_complex up to [base], caption_y, credit_v)."""
     if layout == "stack":
         cx, cy, cw, ch = cam
@@ -62,11 +62,21 @@ def video_graph(layout, src_w, src_h, cam=None, fps=30):
              f"[cam][game]vstack=inputs=2,fps={fps}[base]")
         return g, CAM_H, 190
     if layout == "viceprint":
-        fw = min(src_w, src_h) // 2 * 2       # 1:1 square centered in vertical 9:16
         top = 420                             # centered vertically: (1920 - 1080) / 2 = 420
-        g = (f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-             f"boxblur=30:3,eq=brightness=-0.22:saturation=1.25[bg];"
-             f"[0:v]crop={fw}:{fw}:(iw-{fw})/2:(ih-{fw})/2,scale=1080:1080,"
+        if active_box and active_box[2] >= 360 and active_box[3] >= 360:
+            ax, ay, aw, ah = active_box
+            fw = min(aw, ah) // 2 * 2
+            fx = ax + max(0, (aw - fw) // 2)
+            fy = ay + max(0, (ah - fw) // 2)
+            bg_src = f"[0:v]crop={aw}:{ah}:{ax}:{ay},"
+            fg_crop = f"[0:v]crop={fw}:{fw}:{fx}:{fy}"
+        else:
+            fw = min(src_w, src_h) // 2 * 2   # 1:1 square centered in vertical 9:16
+            bg_src = "[0:v]"
+            fg_crop = f"[0:v]crop={fw}:{fw}:(iw-{fw})/2:(ih-{fw})/2"
+        g = (f"{bg_src}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+             f"boxblur=30:3,eq=brightness=-0.10:contrast=1.05:saturation=1.28[bg];"
+             f"{fg_crop},scale=1080:1080,"
              f"unsharp=3:3:0.5:3:3:0.0,eq=contrast=1.05:saturation=1.10,setsar=1[fg];"
              f"[bg][fg]overlay=0:{top},fps={fps}[base]")
         return g, top + 160, 0
@@ -97,7 +107,14 @@ def render(piece, out_path, layout="auto", cam_pos="auto", words=None, hook="", 
     layout, cam = choose_layout(layout, cam_pos, piece, src_w, src_h, require_cam=require_cam)
     if not layout:
         return {"layout": None, "cam": None, "duration": dur}
-    graph, cap_y, credit_v = video_graph(layout, src_w, src_h, cam, fps)
+    active_box = None
+    if layout == "viceprint":
+        try:
+            from . import viceprint
+            active_box = viceprint.detect_active_box(piece, src_w, src_h)
+        except Exception:
+            active_box = None
+    graph, cap_y, credit_v = video_graph(layout, src_w, src_h, cam, fps, active_box=active_box)
 
     if layout == "viceprint":
         if caption_style in ("ig-comment", None):

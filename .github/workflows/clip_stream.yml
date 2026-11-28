@@ -39,6 +39,7 @@ on:
         options:
           - auto
           - stack
+          - viceprint
           - gameplay
           - blur
           - crop
@@ -126,7 +127,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          pip install -U yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
+          pip install -U --pre yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
           pip install -r requirements.txt
 
       - name: Cache Whisper model

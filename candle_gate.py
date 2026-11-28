@@ -274,7 +274,9 @@ class CandleGate:
         except Exception:
             return {}
 
-    def evaluate_live_channel(self, youtube_client=None) -> Dict[str, Any]:
+    def evaluate_live_channel(
+        self, youtube_client=None, history_path: Path = None, now: Any = None
+    ) -> Dict[str, Any]:
         """
         Polls YouTube Data API v3 for the channel's most recent video performance.
         Computes velocity and blocks uploads if an active push is in progress.
@@ -289,19 +291,24 @@ class CandleGate:
             title = "Previous Short"
             published_at_str = None
 
-            # First priority: check upload_history.json
-            history_file = Path(__file__).resolve().parent / "upload_history.json"
+            # First priority: check upload_history.json (only real uploaded/published entries)
+            history_file = Path(history_path) if history_path else (Path(__file__).resolve().parent / "upload_history.json")
             if history_file.exists():
                 try:
                     records = json.loads(history_file.read_text(encoding="utf-8"))
                     if records and isinstance(records, list):
                         for rec in reversed(records):
-                            raw_id = rec.get("video_id")
-                            if raw_id and not str(raw_id).startswith("dry_run"):
-                                vid_id = raw_id
-                                title = rec.get("title", title)
-                                published_at_str = rec.get("timestamp")
-                                break
+                            if not isinstance(rec, dict):
+                                continue
+                            raw_id = rec.get("video_id") or rec.get("youtube_id")
+                            if not raw_id or str(raw_id).startswith("dry_run"):
+                                continue
+                            if rec.get("status") not in {"uploaded", "published"} and not rec.get("published", False):
+                                continue
+                            vid_id = raw_id
+                            title = rec.get("title", title)
+                            published_at_str = rec.get("timestamp")
+                            break
                 except Exception:
                     pass
 
@@ -338,7 +345,10 @@ class CandleGate:
 
             total_views = int(v_items[0]["statistics"].get("viewCount", 0))
             published_at = datetime.fromisoformat(published_at_str.replace("Z", "+00:00"))
-            now = datetime.now(timezone.utc)
+            eval_now = now or datetime.now(timezone.utc)
+            if eval_now.tzinfo is None:
+                eval_now = eval_now.replace(tzinfo=timezone.utc)
+            now = eval_now
             elapsed_hours = max((now - published_at).total_seconds() / 3600.0, 0.1)
 
             # Load previous snapshot from state

@@ -360,6 +360,83 @@ class TestChatClipFinder(unittest.TestCase):
         self.assertIn("height>=720", src)
         self.assertNotIn("/18/b", src)
 
+    def test_viceprint_layout_and_video_graph(self):
+        from ccf.render import choose_layout, video_graph
+        layout, cam = choose_layout("viceprint", "auto", None, 1920, 1080, require_cam=True)
+        self.assertEqual(layout, "viceprint")
+        self.assertIsNone(cam)
+
+        graph, cap_y, credit_v = video_graph("viceprint", 1920, 1080)
+        self.assertIn("overlay=0:420", graph)
+        self.assertIn("crop=1080:1080:(iw-1080)/2:(ih-1080)/2", graph)
+        self.assertIn("scale=1080:1080", graph)
+        self.assertIn("boxblur=30:3", graph)
+        self.assertEqual(cap_y, 580)
+        self.assertEqual(credit_v, 0)
+
+        # Portrait input must crop true square (never squish 1080:1920 into 1080:1080)
+        portrait_graph, _, _ = video_graph("viceprint", 1080, 1920)
+        self.assertIn("crop=1080:1080:(iw-1080)/2:(ih-1080)/2", portrait_graph)
+
+    def test_viceprint_ass_builder_unbranded(self):
+        from ccf.captions import build_ass
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_ass = Path(tmpdir) / "viceprint.ass"
+            words = [
+                {"w": "SECRET", "s": 0.0, "e": 0.4},
+                {"w": "GTA", "s": 0.45, "e": 0.8},
+                {"w": "WORKOUT", "s": 0.85, "e": 1.2},
+            ]
+            # Even if credit is passed, Viceprint mode must remove all channel branding and HUD badges
+            build_ass(out_ass, words, duration=55.0, hook="", style="viceprint", credit="@grandtheftclipper")
+            content = out_ass.read_text(encoding="utf-8")
+            self.assertNotIn("@grandtheftclipper", content)
+            self.assertNotIn("Dialogue: 0,", content)
+            self.assertNotIn("[ 01 · THE HOOK ]", content)
+            self.assertIn("SECRET", content)
+            self.assertIn("Cap", content)
+
+    def test_viceprint_topics_and_discovery_filter(self):
+        from ccf import viceprint
+        self.assertGreaterEqual(len(viceprint.VICEPRINT_TOPICS), 5)
+        for topic in viceprint.VICEPRINT_TOPICS:
+            self.assertNotIn("grand theft clipper", topic["script"].lower())
+            self.assertNotIn("grandtheftclipper", topic["script"].lower())
+
+        top = viceprint.pick_topic()
+        self.assertTrue(top["title"].startswith("Get STRONGER FAST in GTA 6"))
+        self.assertIn("tags", top)
+
+        rotated = viceprint.pick_topic(history_records=[{"title": top["title"]}])
+        self.assertNotEqual(rotated["id"], top["id"])
+
+        # Discovery filter accepts GTA 6 secrets/tips & rejects trailers/GTA 5
+        self.assertTrue(viceprint.is_viceprint_candidate("10 SECRET DETAILS You Missed in GTA 6"))
+        self.assertTrue(viceprint.is_viceprint_candidate("Get Stronger Fast in GTA 6 Tips and Tricks"))
+        self.assertFalse(viceprint.is_viceprint_candidate("GTA 6 Trailer 2 Official Breakdown & Release Date"))
+        self.assertFalse(viceprint.is_viceprint_candidate("GTA 5 Secret Workout Trick"))
+
+    def test_auto_clips_dual_mode_and_cli_entry(self):
+        import auto_clips
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = Path(tmpdir) / "upload_history.json"
+            # Initial state (no uploads) -> defaults to viceprint
+            self.assertEqual(auto_clips.resolve_mode("auto", hist), "viceprint")
+            # Last uploaded was viceprint -> alternates to stream
+            hist.write_text(json.dumps([{"video_id": "v1", "status": "uploaded", "mode": "viceprint"}]), encoding="utf-8")
+            self.assertEqual(auto_clips.resolve_mode("auto", hist), "stream")
+            # Last uploaded was stream -> alternates back to viceprint
+            hist.write_text(json.dumps([{"video_id": "v2", "status": "uploaded", "mode": "stream"}]), encoding="utf-8")
+            self.assertEqual(auto_clips.resolve_mode("auto", hist), "viceprint")
+            # Explicit overrides stay explicit
+            self.assertEqual(auto_clips.resolve_mode("viceprint", hist), "viceprint")
+            self.assertEqual(auto_clips.resolve_mode("stream", hist), "stream")
+
+        # Verify auto_clips.main exists and handles --help cleanly
+        with self.assertRaises(SystemExit) as cm:
+            auto_clips.main(["--help"])
+        self.assertEqual(cm.exception.code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

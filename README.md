@@ -1,224 +1,219 @@
-# 🎬 The Chat Clip Finder
+# 🎬 Chat Clip Finder
 
 [![Auto-Clip](https://github.com/loobah18-arch/chat-clip-finder/actions/workflows/auto_clip.yml/badge.svg)](https://github.com/loobah18-arch/chat-clip-finder/actions/workflows/auto_clip.yml) ← tap, then **Run workflow** to clip now
 
-> **Let chat find the best moments of a Twitch or YouTube stream, then turn them into ready-to-post Shorts, Reels and TikToks.**
-> Tuned for **GTA 6** streams and gameplay. Free, open-source, runs on GitHub Actions from your phone.
-
-## 🆕 v2: modern Shorts, YouTube streams, GTA 6 mode
-
-| | What you get |
-|---|---|
-| 🎙️ **Word-by-word captions** | Whisper (free, CPU) times every word. 1-3 words on screen, ALL CAPS, heavy outline, the spoken word pops in yellow. Whisper's made-up words during music / explosions are dropped. |
-| 📱 **Streamer layout** | Webcam found automatically (YuNet face detector) -> cam on top, gameplay below, captions on the seam. No cam (gameplay uploads, trailers) -> zoomed gameplay over a blurred copy. |
-| 🪝 **Hook title** | Black-on-white hook for the first 3.5 s (Instagram style), picked per clip from how chat reacted ("WAIT... WHAT JUST HAPPENED?", "5 STARS IN 10 SECONDS"). |
-| ✅ **Platform-ready** | 1080x1920, 30 fps, -14 LUFS loudness, progress bar, faststart, key content kept out of the apps' button areas, `@streamer` credit on screen. |
-| ▶️ **YouTube streams** | Paste a YouTube video / past live-stream link. Chat replay + only the needed segments are downloaded with yt-dlp, using your cookies file (ClipKaro-style lookup) and optional proxy. |
-| 🚔 **GTA 6 mode** (`--game gta6`, default) | Chat reactions like WASTED, BUSTED, 5 STAR, VICE CITY, cops, chase count extra; GTA 6 titles + hashtags; every clip gets its own title. |
-| 🔊 **No chat? No problem** | `--no-chat` finds moments from loudness spikes (crashes, explosions, screaming) for gameplay videos and trailers. |
-| 🧹 **Skips dead air** | Ignores the first 2 min ("Starting soon") and last minute of a stream. |
-
-```
-python3 chat_clips.py --url "https://www.youtube.com/watch?v=..." --emotes --top 5
-python3 chat_clips.py --url "https://www.twitch.tv/videos/123..." --emotes
-python3 chat_clips.py --url "https://youtu.be/..." --no-chat          # GTA 6 gameplay upload, no chat
-```
-Install once: `pip install -r requirements.txt` + FFmpeg. Finished clips land in `clips/`, with a title,
-description and hashtags for each one in `clips/posts.json`.
-
-### YouTube cookies
-YouTube asks GitHub's servers to sign in. Export your cookies (any "Get cookies.txt" browser extension,
-while logged in to a **throwaway** Google account), then save the file's text (or base64) as the repo
-secret `YOUTUBE_COOKIES`. Locally, just put it next to the script as `youtube_cookies.txt`.
-Optional: `YOUTUBE_PROXY` secret if the runner is still blocked. Cookies expire, so re-export when
-downloads start failing.
-
-### 🤖 Hands-free: auto-clip the top GTA 6 streams
-`auto_clips.py` searches YouTube for today's most-watched GTA 6 **gameplay** streams and videos
-(skips news, leaks, countdowns, GTA 5 / RP and Shorts), plus Twitch's top GTA VI broadcasts when
-`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` secrets exist (free app at dev.twitch.tv). Creators you
-list in `streamers.txt` are always checked first. It remembers what it clipped in `state/processed.json`.
-
-```
-python3 auto_clips.py --list          # show what it would pick
-python3 auto_clips.py --count 2 --top 3
-```
-The **Auto-Clip** workflow runs this daily at 4 PM ET. Scheduled runs only upload if you
-set the repo variable `AUTO_UPLOAD` to `true` (privacy from `AUTO_PRIVACY`, default private).
-⚠️ Re-uploading other creators' streams can get copyright claims; credit is added, but permission is safest.
-
-### 🛡️ Algorithm protection (Candle Gate, same as auto-clipper-shorts)
-Before any upload the channel's last Short is checked live through the YouTube API:
-
-| Layer | Rule |
-|---|---|
-| 0 · 24h spacing | No upload within 24 h of the last one. ≤ 30 min left → waits inline. The pre-flight job skips the whole scheduled run before clipping, so no runner minutes are wasted. |
-| 1 · Early momentum | Last Short hit ≥ 2,000 views in its first 24 h → hold and let it ride. 1,700–1,999 → 1-hour timer, then re-check. |
-| 2 · Viral velocity | Last Short still doing ≥ 2,500 views/hr → hold until it stays below for 24 h. |
-
-One Short (the best clip) is uploaded per run; `upload_history.json` and `candle_gate_state.json` are
-committed back so the gates remember. Deferred uploads end cleanly (exit 2). `force_upload` skips the gate.
-
-### 🕓 Schedule
-**Auto-Clip** runs every day at **4:00 PM US Eastern** (DST-safe) and from the Run workflow button any time.
-Scheduled runs upload only when the repo variable `AUTO_UPLOAD` is `true`; `AUTO_GAME` changes the game (default `gta6`).
-
-### Cloud runner
-Actions -> **Clip Stream to Shorts** -> Run workflow -> paste the link. Leave `upload_to_youtube` off to
-check the clips first (download them from the run's artifacts); demo runs never upload.
+> **Two autonomous pipelines for GTA 6 Shorts. Runs fully in the cloud on GitHub Actions — no hardware needed.**
 
 ---
 
-## 💡 The Idea: Chat Knows Where the Clip Is
+## Pipeline Overview
 
-When something crazy happens on a stream, chat explodes. The tool counts messages per 10 seconds,
-compares each slice to the 5 minutes around it, and cuts from the spikes. Chat reacts *after* the
-moment, so clips start 20 s before the spike and end 10 s after.
-
-## ⚡ Quick Start (3 Commands)
-
-Clone the repository and test the algorithm immediately with the included synthetic 2-hour demo stream:
-
-```bash
-git clone https://github.com/loobah18-arch/chat-clip-finder.git
-cd chat-clip-finder
-
-# 1. Test spike detector on demo chat (zero setup required)
-node chat-clips.mjs demo_chat.json
-# or with Python:
-python3 chat_clips.py demo_chat.json
-```
-
-**Real output:**
-```text
-💬 13597 chat messages, ⏱ 2:00:00 of stream
-
-▁▁▁▁▁▁▁▁▁▇▁▁▁▁▁▁▁▃▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▅▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁
-0:00:00                                          2:00:00
-
-Top Moments:
-#1  0:20:00  120 msgs in 10s  (6.3x normal)  -> clip 0:19:40 to 0:20:10
-#2  0:38:20  59 msgs in 10s  (3.1x normal)  -> clip 0:38:00 to 0:38:30
-#3  0:55:30  130 msgs in 10s  (6.8x normal)  -> clip 0:55:10 to 0:55:40
-#4  1:15:00  85 msgs in 10s  (4.5x normal)  -> clip 1:14:40 to 1:15:10
-#5  1:40:10  138 msgs in 10s  (7.3x normal)  -> clip 1:39:50 to 1:40:20
-
-✅ Saved moment data to clips/moments.json.
-```
-
----
-
-
----
-
-## 📖 Step-by-Step Guide
-
-### Step 1 · Install Node.js (or Python 3)
-- Download and install Node.js (v18+) from [nodejs.org](https://nodejs.org).
-- Check: `node --version`
-
-### Step 2 · Install FFmpeg
-- **Windows (PowerShell)**: `winget install Gyan.FFmpeg`
-- **macOS (Terminal)**: `brew install ffmpeg`
-- **Linux / Ubuntu**: `sudo apt install ffmpeg`
-- Check: `ffmpeg -version`
-
-### Step 3 · Download TwitchDownloaderCLI
-- Download the CLI zip for your OS from [lay295/TwitchDownloader Releases](https://github.com/lay295/TwitchDownloader/releases/latest).
-- Extract `TwitchDownloaderCLI` (or `TwitchDownloaderCLI.exe`) into the folder.
-- On Mac/Linux: run `chmod +x TwitchDownloaderCLI`.
-
-### Step 4 · Pick a Stream
-- On Twitch, go to a streamer's page → **Videos** → **Past Broadcasts**.
-- Copy the VOD URL: `https://www.twitch.tv/videos/1234567890`
-- *Always clip creators who allow clipping or run clipping campaigns.*
-
-### Step 5 · Grab the Chat
-Download the timestamped chat log:
-```bash
-# Windows
-.\TwitchDownloaderCLI.exe chatdownload --id https://www.twitch.tv/videos/1234567890 -o chat.json
-
-# Mac / Linux
-./TwitchDownloaderCLI chatdownload --id https://www.twitch.tv/videos/1234567890 -o chat.json
-```
-
-### Step 6 · Find the Moments
-Inspect the chat spikes and ASCII timeline:
-```bash
-node chat-clips.mjs chat.json
-```
-
-### Step 7 · Cut Vertical 9:16 Clips
-Download only the 30-second clips around each spike and auto-crop to 9:16 (1080x1920):
-```bash
-node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890
-```
-> *If you already downloaded the entire stream video, use `--video stream.mp4` instead of `--vod`.*
-
-### Step 8 · Captions & Hook
-v2 adds word-by-word captions and a hook automatically. The old helper still works for one-off edits:
-Most users watch Short-form video with the sound muted. Add captions or an opening hook:
-- **Built-in Hook Caption**:
-  ```bash
-  python3 caption_helper.py clips/clip_01.mp4 --text "Wait for it 😳"
-  ```
-- **Option A**: [OpenShorts](https://openshorts.app) / [github.com/mutonby/openshorts](https://github.com/mutonby/openshorts)
-- **Option B**: CapCut (Auto Captions → Bold Style)
-
----
-
-## 🎛️ Settings Cheat Sheet
-
-Add any of these flags to customize the output:
-
-| Option | Description | Default |
+| | Mode A — Stream Highlight | Mode B — Viceprint |
 |---|---|---|
-| `--top <n>` | How many clips to generate | `5` |
-| `--before <s>` | Seconds before the spike to start clip | `20` |
-| `--after <s>` | Seconds after the spike to end clip | `10` |
-| `--gap <s>` | Minimum seconds between two clips | `90` |
-| `--bucket <s>` | Size of each counting slice in seconds | `10` |
-| `--layout <mode>` | `auto`, `stack` (cam top), `gameplay` (zoomed, no cam), `blur`, `crop` | `auto` |
-| `--cam <pos>` | Webcam position, or `auto` to detect | `auto` |
-| `--game <name>` | `gta6` or `none` | `gta6` |
-| `--captions on/off` | Word-by-word captions | `on` |
-| `--lang <code>` | Spoken language (`en`, `hi`...) | auto |
-| `--hook <text>` | Same hook on every clip | per clip |
-| `--credit <name>` | Streamer credit | from video |
-| `--url <link>` | Twitch or YouTube link | — |
-| `--no-chat` | Loudness spikes instead of chat | off |
-| `--skip-start / --skip-end` | Ignore intro / outro seconds | `120` / `60` |
-| `--out <folder>` | Folder name for the output clips | `clips` |
-| `--video <file>` | Cut from a local video file you already have | — |
-| `--vod <url/id>` | Cut from Twitch directly via TwitchDownloaderCLI | — |
-| `--tdl <path>` | Custom path to TwitchDownloaderCLI binary | auto-detected |
-| `--dry-run` | Analyze chat & write moments.json without cutting video | `false` |
+| **What it makes** | Clip-reaction Shorts from live Twitch/YouTube streams | Narrated "GTA 6 Secrets" Shorts from raw gameplay VODs |
+| **Source** | Twitch streams + YouTube VODs with active chat | Twitch VODs tagged `Grand Theft Auto VI` with strict gameplay filter |
+| **Layout** | Streamer webcam (top) + gameplay (bottom), kinetic captions | Multi-scene 3.2 s jump-cuts, full-bleed gameplay, no facecam |
+| **Audio** | Original stream audio, word-timed captions | Edge-TTS narration + sidechain-ducked BGM |
+| **Trigger** | `--mode a` or omit flag | `--mode b` |
 
-**Example (10 clips, 25s lead-in, custom folder):**
-```bash
-node chat-clips.mjs chat.json --vod https://www.twitch.tv/videos/1234567890 --top 10 --before 25 --out gta-day1
+---
+
+## Mode A — Stream Highlight Clips
+
+Finds the **highest chat-reaction moments** in a Twitch or YouTube stream and auto-crops them to 9:16.
+
+### How it works
+1. **Discovery** — searches YouTube for today's most-watched GTA 6 gameplay streams (skips news, leaks, countdowns, GTA 5/RP and Shorts). Checks Twitch for live/recent GTA 6 streams. Creators in `streamers.txt` are always checked first.
+2. **Chat analysis** — downloads timestamped chat with TwitchDownloaderCLI or yt-dlp, counts reactions per 10 s bucket, picks the top spikes.
+3. **Rendering** — for each spike, downloads only the ±30 s segment. YuNet face detector finds the webcam; if found, stacks cam (top) + gameplay (bottom). No cam → zoomed gameplay over a blurred copy. Whisper transcribes every word; captions appear 1–2 words at a time, active word highlights yellow.
+4. **Hook** — 3.5 s black-on-white hook title at the start (chosen per clip based on chat reaction type).
+5. **Output** — 1080×1920, 30 fps, –14 LUFS, `@streamer` credit, `clips/posts.json` with title + hashtags.
+
+### Candle Gate (algorithm protection)
+Scheduled auto-runs are suppressed when the YouTube algorithm is in a "distribution window" (Candle Gate, same logic as `auto-clipper-shorts`). Prevents posting into dead zones.
+
+---
+
+## Mode B — Viceprint (Narrated GTA 6 Secrets)
+
+Produces **standalone narrated Shorts** in the style of a "GTA 6 secrets/guide" video — no streamer, no facecam, pure gameplay footage with voiceover.
+
+### What Mode B produces
+- **Multi-scene jump-cuts** — 4 × 3.2 s segments from different timestamps in the same VOD, round-robined so the shot variety looks like a produced edit.
+- **Edge-TTS narration** — a "secret tip" or "guide" script (~90–120 words) is generated for the topic, synthesised with `edge-tts` (Microsoft's free neural TTS) at a slightly elevated rate.
+- **Ducked BGM** — an instrumental gaming BGM track plays under the narration, sidechained so the music drops 12 dB whenever speech is present.
+- **Borderless active-box crop** — `ffprobe cropdetect` auto-detects the letterbox/pillarbox bounds of the source clip and crops to the true gameplay area before squaring to 1080×1920. No black bars.
+- **Kinetic captions** — Whisper aligns the generated script word-by-word against the TTS audio; captions appear 2 words at a time (Montserrat Black, 96 px, yellow highlight on the spoken word).
+
+### Where Mode B gets its clips
+1. **Twitch VOD discovery** — calls the Twitch Helix API for top VODs under category `Grand Theft Auto VI`.
+2. **Strict content filter (`is_viceprint_twitch_candidate`)** — rejects VODs whose title matches `TWITCH_EXCLUDE_RE` (react, trailer, kai vs, counting down, watch party, movie, etc.). Requires `TWITCH_GAMEPLAY_RE` keywords (play, gameplay, day, grind, run, session, hours, full, stream, live, drops) in strict mode.
+3. **Multi-burst download** — picks 4 non-overlapping 15 s windows spread across the VOD (skipping the first/last 5 % to avoid intros/outros) and downloads each with yt-dlp.
+4. **Segment validation (`validate_gameplay_segment`)** — each burst is checked:
+   - **Facecam rejection**: runs `ccf.facecam.detect()`. If the detected face box is centered (x within 24–76 % of frame width) or oversized (> 45 % wide / > 55 % tall), the segment is rejected as a reaction/facecam segment.
+   - **Letterbox rejection**: if `cropdetect` returns ultra-wide (< 56 % of frame height) the segment is rejected as a cinema trailer.
+5. **Path A — dense guide speech detected** (`_is_dense_guide_speech`): if the VOD already contains a dense narration track (≥ 115 WPM, first word within 3.5 s, no gap > 4.5 s, silence at end < 6 s), that audio is used directly; Whisper transcribes it for captions.
+6. **Path B — synthesised narration** (default): `produce_viceprint_short()` generates a "GTA 6 secrets" script for the detected topic, synthesises it with edge-tts, and builds the Short from the validated burst segments.
+
+### Audio pipeline
+```
+edge-tts narration ──► align_script_words (Whisper) ──► captions
+                   └──► mix_viceprint_audio ──────────── BGM sidechain-duck ──► final mix
 ```
 
 ---
 
-## 🛠️ Troubleshooting
+## CI/CD — GitHub Actions
+
+**Workflow**: `.github/workflows/auto_clip.yml`  
+**Schedule**: daily at **4 PM ET** (21:00 UTC)  
+**Manual trigger**: Repository → Actions → Auto-Clip → Run workflow
+
+### Required Secrets
+
+| Secret | What it's for |
+|---|---|
+| `CLIENT_ID` | Google OAuth client ID (YouTube Data API) |
+| `CLIENT_SECRET` | Google OAuth client secret |
+| `REFRESH_TOKEN` | OAuth refresh token for the channel |
+| `YOUTUBE_COOKIES` | Netscape-format cookies for yt-dlp (export from browser) |
+| `TWITCH_CLIENT_ID` | Twitch Helix API app client ID (free at dev.twitch.tv) |
+| `TWITCH_CLIENT_SECRET` | Twitch Helix API app client secret |
+
+### Optional Secrets / Variables
+
+| Name | Default | Purpose |
+|---|---|---|
+| `YOUTUBE_PROXY` | — | Proxy URL if GitHub runner IP is blocked |
+| `AUTO_UPLOAD` | `false` | Set repo variable to `true` to auto-upload clips |
+| `AUTO_PRIVACY` | `private` | Privacy level of auto-uploaded videos |
+
+### System dependencies installed by the workflow
+```
+ffmpeg python3-pip yt-dlp fonts-montserrat fontconfig
+```
+
+---
+
+## CLI Usage
+
+```bash
+# Mode A — stream highlights (default)
+python3 auto_clips.py --mode a --count 2 --top 3
+
+# Mode B — Viceprint narrated Short
+python3 auto_clips.py --mode b --topic "secret_workout"
+
+# List what the auto-clipper would pick without rendering
+python3 auto_clips.py --list
+
+# Single stream, full control
+python3 chat_clips.py --url "https://www.twitch.tv/videos/1234567890" --top 5 --emotes
+python3 chat_clips.py --url "https://www.youtube.com/watch?v=..." --no-chat
+```
+
+### `auto_clips.py` flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--mode` | `a` | Pipeline: `a` = stream highlights, `b` = Viceprint narrated |
+| `--topic` | auto-detected | Topic slug for Mode B script generation |
+| `--count` | `1` | Number of Shorts to produce |
+| `--top` | `5` | Candidate streams/VODs to evaluate |
+| `--list` | — | Print candidates without rendering |
+
+### `chat_clips.py` flags (Mode A, single stream)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--url` | — | Twitch or YouTube stream URL |
+| `--top` | `5` | Number of clips to cut |
+| `--before` | `20` | Seconds of lead-in before chat spike |
+| `--after` | `10` | Seconds after spike |
+| `--gap` | `90` | Minimum gap between clips (seconds) |
+| `--layout` | `auto` | `auto`, `stack`, `gameplay`, `blur`, `crop` |
+| `--game` | `gta6` | `gta6` or `none` |
+| `--captions` | `on` | Word-by-word captions |
+| `--no-chat` | off | Use loudness spikes instead of chat |
+| `--video` | — | Cut from a local video file |
+| `--dry-run` | false | Analyze only, don't cut video |
+
+---
+
+## `streamers.txt` Format
+
+One Twitch or YouTube handle per line. Checked before generic discovery.
+
+```
+# Twitch handles (no @)
+kaicenat
+xQc
+
+# YouTube channel IDs or handles
+UCxxxxxxxxxxxxxxxxxx
+@SomeGTAChannel
+```
+
+---
+
+## State & Deduplication
+
+`state/processed.json` stores every source ID that has been clipped (YouTube video ID or `tw:<vod_id>`). The auto-clipper skips already-processed sources.
+
+---
+
+## Running Tests
+
+```bash
+python3 -m unittest discover -p "test_*.py" -v
+# Expected: 62 tests, all pass
+```
+
+Tests cover: chat spike detection, facecam detection, Candle Gate logic, Viceprint Twitch filter, Path A density gate, segment validation, script alignment, BGM mix, and render graph.
+
+---
+
+## Project Structure
+
+```
+chat-clip-finder/
+├── auto_clips.py          # Orchestrator — Mode A & B, discovery, dedup, upload
+├── chat_clips.py          # Single-stream Mode A CLI
+├── ccf/
+│   ├── viceprint.py       # Mode B: Twitch discovery, segment validation, TTS, BGM mix
+│   ├── render.py          # FFmpeg filtergraph builder (stack, gameplay, viceprint)
+│   ├── captions.py        # Whisper word-timing + ASS subtitle builder
+│   ├── facecam.py         # YuNet face detector
+│   └── candle_gate.py     # Algorithm protection gate
+├── assets/
+│   └── audio/
+│       └── viceprint_bgm.mp3   # Instrumental BGM for Mode B (90 s)
+├── state/
+│   └── processed.json          # Dedup store
+├── streamers.txt               # Priority creator list
+├── test_chat_clips.py          # 62 unit tests
+└── .github/workflows/
+    └── auto_clip.yml           # Daily CI/CD + manual trigger
+```
+
+---
+
+## Troubleshooting
 
 | Error | Fix |
 |---|---|
-| `node / ffmpeg is not recognized` | Close terminal and open a new one. Ensure tools are on your PATH. |
-| `No chat messages found` | Verify `chat.json` finished downloading and is not empty. |
-| `TwitchDownloaderCLI failed` | On Windows, ensure `.exe` is in the folder. On Mac/Linux, run `chmod +x TwitchDownloaderCLI` and pass `--tdl ./TwitchDownloaderCLI`. |
-| `Clips start after the action` | Increase lead-in time with `--before 30`. |
-| `Moments are all at the start` | The stream was short or chat was quiet. Pick a longer VOD with active chat. |
-| `VOD link doesn't work` | Subscriber-only or expired VODs cannot be downloaded. |
+| Mode B picks Avengers / reaction content | `TWITCH_EXCLUDE_RE` should catch it; check that `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` secrets are set so the strict Twitch filter runs |
+| Black bars inside the 1:1 frame | `detect_active_box()` uses cropdetect — ensure ffmpeg is installed on the runner |
+| No narration audio | `edge-tts` requires outbound internet; check runner firewall |
+| Montserrat font missing | Workflow installs `fonts-montserrat` + `fc-cache`; run locally with `sudo apt install fonts-montserrat fontconfig && sudo fc-cache -f` |
+| `state/processed.json` blocks re-run | Delete the file or remove the specific source ID from it |
+| Cookies expired | Re-export from browser with "Get cookies.txt LOCALLY" extension, update `YOUTUBE_COOKIES` secret |
 
 ---
 
-## ⚖️ Etiquette & Credits
+## Credits & Etiquette
 
-- **Only clip creators who allow it.** Credit the streamer in your caption and on screen (`@streamer`).
-- Facecam model, cookies lookup and safe-zone ideas from [ClipKaro](https://github.com/allthingsaman/ClipKaro) by Aman Upadhyay (MIT).
-- Built based on the original Chat Clip Finder guide by [@ai.with.raiyan](https://www.instagram.com/ai.with.raiyan/).
-- Uses [TwitchDownloader](https://github.com/lay295/TwitchDownloader) by `lay295` (MIT) and [FFmpeg](https://ffmpeg.org).
+- **Only use VODs from creators who allow clipping.** `@streamer` credit is added on screen automatically.
+- Facecam detection based on [ClipKaro](https://github.com/allthingsaman/ClipKaro) by Aman Upadhyay (MIT).
+- Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org), [Whisper](https://github.com/openai/whisper), [edge-tts](https://github.com/rany2/edge-tts).
 - License: [MIT](LICENSE)
